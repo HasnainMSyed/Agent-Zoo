@@ -5,7 +5,7 @@ import { desktopAlert, playSound } from "../alerts";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentId } from "@shared/events";
 import { PERMISSION_MODES, type AccountInfo, type UsageLimits } from "@shared/commands";
-import { AGENT_COLOR_DEFAULTS, type Settings } from "../settings";
+import { AGENT_COLOR_DEFAULTS, CUSTOM_DEFAULT, THEME_TOKENS, parseTheme, type CustomTheme, type Settings, type ThemeToken } from "../settings";
 import { packFor, type MascotPack } from "../mascots";
 import type { MascotState } from "../state";
 import { Mascot } from "./Mascot";
@@ -59,8 +59,68 @@ function AccountTerminal({ agent, action, onDone }: { agent: AgentId; action: "l
   );
 }
 
-export function SettingsPage({ settings, onChange, user, version, usage, onClose, packs, onMakeMascot, onPacksChanged }: {
-  settings: Settings; onChange: (s: Settings) => void; user: string; version: string;
+/** A colour as #rrggbb (colour inputs need that form); computed colours come back as rgb(). */
+function toHex(c: string): string {
+  const v = c.trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(v)) return "#" + [...v.slice(1)].map((x) => x + x).join("").toLowerCase();
+  const m = /rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/.exec(v);
+  return m ? "#" + m.slice(1, 4).map((n) => Math.round(Number(n)).toString(16).padStart(2, "0")).join("") : "#000000";
+}
+
+/** The base palette's colours right now (light or dark), read from a hidden sample of that skin. */
+function baseColors(base: AgentId): Record<ThemeToken, string> {
+  const probe = document.createElement("div");
+  probe.dataset.skin = base;
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const out = Object.fromEntries(THEME_TOKENS.map(([t]) => [t, toHex(cs.getPropertyValue(t))])) as Record<ThemeToken, string>;
+  probe.remove();
+  return out;
+}
+
+/** Settings → Appearance → Custom: a base palette with any colours changed, for light and dark separately. */
+function ThemeEditor({ theme, dark, onChange }: { theme: CustomTheme; dark: boolean; onChange: (t: CustomTheme) => void }) {
+  const mode = dark ? "dark" : "light";
+  const base = baseColors(theme.base);
+  const mine = theme[mode];
+  const [note, setNote] = useState("");
+  const setToken = (t: ThemeToken, v: string | null) => {
+    const next = { ...mine };
+    if (v === null || v === base[t]) delete next[t]; else next[t] = v;
+    onChange({ ...theme, [mode]: next });
+  };
+  return (
+    <div className="theme-editor">
+      <div className="theme-editor-head">
+        <Choice label="Start from" value={theme.base} onChange={(v) => onChange({ ...theme, base: v })} options={[["claude", "Claude"], ["codex", "Codex"], ["grok", "Grok"]]} />
+        <span className="muted tiny">Editing the {mode} colours. Switch Theme above to edit the {dark ? "light" : "dark"} ones.</span>
+      </div>
+      <div className="theme-grid">
+        {THEME_TOKENS.map(([t, label]) => (
+          <label key={t} className={`theme-swatch ${mine[t] ? "changed" : ""}`}>
+            <input type="color" value={mine[t] ?? base[t]} onChange={(e) => setToken(t, e.target.value)} />
+            <span>{label}</span>
+            {mine[t] && <button className="swatch-reset" onClick={(e) => { e.preventDefault(); setToken(t, null); }} aria-label={`Reset ${label}`} title="Back to the base colour">↺</button>}
+          </label>
+        ))}
+      </div>
+      <div className="theme-actions">
+        <button className="btn-small" onClick={() => onChange({ ...theme, [mode]: {} })} disabled={!Object.keys(mine).length}>Reset {mode} colours</button>
+        <button className="btn-small" onClick={() => { navigator.clipboard.writeText(JSON.stringify(theme, null, 1)).then(() => setNote("Copied. Paste it anywhere to share it."), () => setNote("Couldn't copy.")); }}>Copy theme</button>
+        <button className="btn-small" onClick={async () => {
+          const t = parseTheme(await navigator.clipboard.readText().catch(() => ""));
+          if (t) { onChange(t); setNote("Theme pasted."); } else setNote("The clipboard doesn't hold a theme.");
+        }}>Paste theme</button>
+        {note && <span className="muted tiny" role="status">{note}</span>}
+      </div>
+    </div>
+  );
+}
+
+export function SettingsPage({ settings, onChange, dark, user, version, usage, onClose, packs, onMakeMascot, onPacksChanged }: {
+  settings: Settings; onChange: (s: Settings) => void; dark: boolean; user: string; version: string;
   usage: Partial<Record<AgentId, UsageLimits>>; onClose: () => void;
   packs: MascotPack[]; onMakeMascot: (description: string) => void; onPacksChanged: () => void;
 }) {
@@ -125,8 +185,9 @@ export function SettingsPage({ settings, onChange, user, version, usage, onClose
           <h2>Appearance</h2>
           <Row title="Theme"><Choice label="Theme" value={settings.theme} onChange={(v) => set("theme", v)} options={[["system", "System"], ["light", "Light"], ["dark", "Dark"]]} /></Row>
           <Row title="Colours" hint="Follow the agent you're working with, or keep one look everywhere">
-            <Choice label="Colours" value={settings.skin} onChange={(v) => set("skin", v)} options={[["agent", "Follow agent"], ["claude", "Claude"], ["codex", "Codex"], ["grok", "Grok"]]} />
+            <Choice label="Colours" value={settings.skin} onChange={(v) => set("skin", v)} options={[["agent", "Follow agent"], ["claude", "Claude"], ["codex", "Codex"], ["grok", "Grok"], ["custom", "Custom"]]} />
           </Row>
+          {settings.skin === "custom" && <ThemeEditor theme={settings.customTheme ?? CUSTOM_DEFAULT} dark={dark} onChange={(t) => set("customTheme", t)} />}
           <Row title="Agent colours" hint="Used for session dots and agent markers">
             <div className="color-row">
               {AGENTS.map((a) => (

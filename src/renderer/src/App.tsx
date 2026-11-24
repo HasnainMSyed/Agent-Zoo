@@ -195,6 +195,19 @@ export function App() {
   // Colour changes blend by themselves: the colour tokens are animatable (see "Theme blend" in styles.css).
   const setSettings = (s: Settings) => { setSettingsState(s); saveSettings(s); };
   useLayoutEffect(() => { applySettings(settings); }, [settings]);
+  // Light or dark right now (a custom theme has a set of colours for each).
+  const [osDark, setOsDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
+  useEffect(() => {
+    const m = window.matchMedia("(prefers-color-scheme: dark)");
+    const f = () => setOsDark(m.matches);
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, []);
+  const dark = settings.theme === "dark" || (settings.theme === "system" && osDark);
+  const custom = settings.skin === "custom" ? settings.customTheme : null;
+  const customColors: Record<string, string> = custom ? { ...custom[dark ? "dark" : "light"] } : {};
+  // A changed accent brings its hover shade along.
+  if (customColors["--accent"]) customColors["--accent-strong"] = `color-mix(in srgb, ${customColors["--accent"]} 82%, ${dark ? "#fff" : "#000"})`;
   // Mascot packs: the user's own (from the app's data folder) plus the choice per agent.
   const [packs, setPacks] = useState<MascotPack[]>(allPacks);
   const loadPacks = useCallback(() => {
@@ -531,8 +544,8 @@ export function App() {
 
   return (
     <div className={`app ${layout.left ? "" : "no-left"} ${!active || showSettings ? "no-rail" : railOpen ? "" : "slim-right"}`}
-      data-skin={settings.skin === "agent" ? agent : settings.skin}
-      style={{ "--agent-claude": settings.agentColors.claude, "--agent-codex": settings.agentColors.codex, "--agent-grok": settings.agentColors.grok } as React.CSSProperties}>
+      data-skin={settings.skin === "agent" ? agent : custom ? custom.base : settings.skin}
+      style={{ "--agent-claude": settings.agentColors.claude, "--agent-codex": settings.agentColors.codex, "--agent-grok": settings.agentColors.grok, ...customColors } as React.CSSProperties}>
       {layout.left ? (
         <aside className="sidebar">
           <div className="sidebar-head">
@@ -585,7 +598,7 @@ export function App() {
           </div>
         )}
         {showSettings ? (
-          <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)}
+          <SettingsPage settings={settings} onChange={setSettings} dark={dark} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)}
             packs={packs} onPacksChanged={loadPacks}
             onMakeMascot={async (description) => {
               const folder = await window.agents.mascots.newFolder(description.split(/\s+/).slice(0, 4).join(" "));
