@@ -232,5 +232,39 @@ export class ClaudeMapper {
   }
 }
 
+/** Rebuilds a conversation from Claude's saved session file (~/.claude/projects/<folder>/<id>.jsonl),
+ *  so the Chat view shows everything, including turns taken in the Terminal view. */
+export function claudeHistory(jsonl: string): AgentEvent[] {
+  const mapper = new ClaudeMapper();
+  const out: AgentEvent[] = [];
+  for (const line of jsonl.split("\n")) {
+    if (!line.trim()) continue;
+    let e: Json;
+    try { e = JSON.parse(line); } catch { continue; }
+    if ((e.type !== "user" && e.type !== "assistant") || e.isSidechain || e.isMeta) continue;
+    const content = e.message?.content;
+    if (e.type === "user") {
+      if (typeof content === "string") {
+        if (content.startsWith("<local-command") || content.startsWith("<system-reminder>")) continue;
+        // Slash commands are saved wrapped in tags; show them as typed.
+        const cmd = /<command-name>([^<]*)<\/command-name>[\s\S]*?(?:<command-args>([^<]*)<\/command-args>)?/.exec(content);
+        out.push({ kind: "user.message", id: e.uuid, text: cmd ? `${cmd[1]}${cmd[2] ? " " + cmd[2] : ""}`.trim() : content });
+      } else if (Array.isArray(content)) {
+        const text = content.filter((b: Json) => b.type === "text").map((b: Json) => b.text).join("\n");
+        if (text && !content.some((b: Json) => b.type === "tool_result")) out.push({ kind: "user.message", id: e.uuid, text });
+        out.push(...mapper.feed({ type: "user", message: e.message, tool_use_result: e.toolUseResult }));
+      }
+      continue;
+    }
+    for (const [i, b] of (Array.isArray(content) ? content : []).entries()) {
+      const id = `${e.message?.id ?? e.uuid}:${e.uuid}:${i}`;
+      if (b.type === "text" && b.text) out.push({ kind: "message.done", id, text: b.text });
+      else if (b.type === "thinking" && b.thinking) out.push({ kind: "thinking.done", id, text: b.thinking });
+      else if (b.type === "tool_use") out.push(...mapper.feed({ type: "assistant", message: { content: [b] } }));
+    }
+  }
+  return out;
+}
+
 export const userMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
 export const controlRequest = (requestId: string, subtype: "initialize" | "interrupt") => ({ type: "control_request", request_id: requestId, request: { subtype } });

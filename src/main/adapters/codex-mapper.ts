@@ -164,6 +164,23 @@ export class CodexMapper {
     return [{ kind: "error", message: `Codex asked for "${msg.method}", which this app doesn't support yet, so it was declined.` }];
   }
 
+  /** Rebuilds a conversation from saved turns (thread/turns/list with itemsView "full"). */
+  history(turns: Json[]): AgentEvent[] {
+    const out: AgentEvent[] = [];
+    for (const turn of turns) {
+      for (const item of turn.items ?? []) {
+        if (item.type === "userMessage") {
+          const text = (item.content ?? []).filter((c: Json) => c.type === "text").map((c: Json) => c.text).join("\n");
+          if (text) out.push({ kind: "user.message", id: item.id, text });
+          continue;
+        }
+        out.push(...this.itemStarted(item), ...this.itemCompleted(item));
+      }
+      if (turn.status === "failed") out.push({ kind: "error", message: turn.error?.message ?? "This turn failed." });
+    }
+    return out;
+  }
+
   /** Builds the JSON-RPC response for an approval. */
   permissionResponse(permId: string, decision: PermissionOption["id"]): Json | undefined {
     const rpcId = this.pending.get(permId);

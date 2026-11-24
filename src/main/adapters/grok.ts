@@ -18,6 +18,7 @@ export class GrokSession implements AgentSession {
   private ready: Promise<string>;
   private stderr = "";
   private closing = false;
+  private replaying: AgentEvent[] | undefined;
 
   /** `resume`: a session id to continue, "latest" for the newest session in this folder, or nothing for a new one. */
   constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, opts: { model?: string; effort?: string } = {}, bin = "grok") {
@@ -48,7 +49,11 @@ export class GrokSession implements AgentSession {
       else call?.resolve(msg.result ?? {});
       return;
     }
-    for (const e of this.mapper.feed(msg)) this.emit(e);
+    for (const e of this.mapper.feed(msg)) {
+      // While a saved conversation is replaying, conversation events are collected, not drawn live.
+      if (this.replaying && !["session.started", "models", "commands", "hook"].includes(e.kind)) this.replaying.push(e);
+      else this.emit(e);
+    }
     for (const id of this.mapper.unsupported.splice(0)) this.write({ id, error: { code: -32601, message: "Not supported by this client" } });
   }
 
@@ -74,8 +79,18 @@ export class GrokSession implements AgentSession {
       sessionId = sessions.sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")))[0]?.sessionId;
     }
     if (sessionId) {
-      // session/resume continues without replaying history (session/load would replay it all).
-      await this.rpc("session/resume", { sessionId, cwd: this.cwd, mcpServers: [] });
+      // session/load replays the saved conversation as updates; collect them into one history event
+      // so Chat matches whatever happened in the Terminal view. Fall back to a plain resume.
+      this.replaying = [];
+      try {
+        await this.rpc("session/load", { sessionId, cwd: this.cwd, mcpServers: [] });
+        const events = [...this.replaying, ...this.mapper.flush()];
+        this.replaying = undefined;
+        this.emit({ kind: "history", events });
+      } catch {
+        this.replaying = undefined;
+        await this.rpc("session/resume", { sessionId, cwd: this.cwd, mcpServers: [] });
+      }
     } else {
       sessionId = String((await this.rpc("session/new", { cwd: this.cwd, mcpServers: [] })).sessionId);
     }

@@ -64,6 +64,7 @@ ipcMain.handle("app:info", () => ({
     : null,
   autoView: process.env.AGENTS_GUI_SCREENSHOT && process.env.AGENTS_GUI_AUTOVIEW === "terminal" ? "terminal" : null,
   autoPrompt: process.env.AGENTS_GUI_SCREENSHOT ? process.env.AGENTS_GUI_AUTOPROMPT ?? null : null,
+  autoType: process.env.AGENTS_GUI_SCREENSHOT ? process.env.AGENTS_GUI_AUTOTYPE ?? null : null,
 }));
 
 app.whenReady().then(createWindow);

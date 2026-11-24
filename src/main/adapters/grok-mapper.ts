@@ -60,7 +60,7 @@ interface Tool { kind: ToolKind; name: string; input: Json; diff?: DiffHunk[]; p
 
 export class GrokMapper {
   private tools = new Map<string, Tool>();
-  private segment: { id: string; type: "text" | "thinking"; text: string } | undefined;
+  private segment: { id: string; type: "text" | "thinking" | "user"; text: string } | undefined;
   private seq = 0;
   private pending = new Map<string, { rpcId: number | string; options: Map<PermissionOption["id"], string> }>();
   private contextWindow: number | undefined;
@@ -114,20 +114,22 @@ export class GrokMapper {
     return [{ kind: "session.started", agent: "grok", sessionId: this.sessionId, model: this.model, cwd: this.cwd }];
   }
 
-  /** Ends the current text or thinking run so the next chunk starts a new block. */
-  private flush(): AgentEvent[] {
+  /** Ends the current text, thinking or replayed user run so the next chunk starts a new block. */
+  flush(): AgentEvent[] {
     const s = this.segment;
     this.segment = undefined;
     if (!s) return [];
+    if (s.type === "user") return [{ kind: "user.message", id: s.id, text: s.text }];
     return [{ kind: s.type === "text" ? "message.done" : "thinking.done", id: s.id, text: s.text }];
   }
 
-  private chunk(type: "text" | "thinking", text: string): AgentEvent[] {
+  private chunk(type: "text" | "thinking" | "user", text: string): AgentEvent[] {
     const out: AgentEvent[] = [];
     if (this.segment && this.segment.type !== type) out.push(...this.flush());
     if (!this.segment) this.segment = { id: `grok-${type}-${++this.seq}`, type, text: "" };
     this.segment.text += text;
-    out.push({ kind: type === "text" ? "message.delta" : "thinking.delta", id: this.segment.id, text });
+    // A replayed user message is only drawn once complete.
+    if (type !== "user") out.push({ kind: type === "text" ? "message.delta" : "thinking.delta", id: this.segment.id, text });
     return out;
   }
 
@@ -135,6 +137,7 @@ export class GrokMapper {
     switch (u.sessionUpdate) {
       case "agent_message_chunk": return u.content?.type === "text" ? this.chunk("text", u.content.text) : [];
       case "agent_thought_chunk": return u.content?.type === "text" ? this.chunk("thinking", u.content.text) : [];
+      case "user_message_chunk": return u.content?.type === "text" ? this.chunk("user", u.content.text) : [];
       case "tool_call": {
         const meta = u._meta?.["x.ai/tool"] ?? {};
         const name = String(meta.name ?? u.title ?? "tool");

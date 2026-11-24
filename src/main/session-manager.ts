@@ -4,11 +4,12 @@
 // Only one view may drive a conversation at a time, so switching closes one and resumes the other.
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { AgentEvent, AgentId, SessionCommand, SessionInfo } from "@shared/events";
 import { ClaudeSession, type AgentSession } from "./adapters/claude";
+import { claudeHistory } from "./adapters/claude-mapper";
 import { ReplaySession } from "./adapters/replay";
 import { CodexSession } from "./adapters/codex";
 import { GrokSession } from "./adapters/grok";
@@ -36,10 +37,9 @@ interface Entry {
   pendingType?: () => void; // types a queued command once the terminal interface first draws
 }
 
-/** Claude stores a conversation once it has a message; resuming an empty one fails. */
-function claudeHasHistory(cwd: string, id: string) {
-  return existsSync(join(homedir(), ".claude", "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${id}.jsonl`));
-}
+/** Where Claude saves a conversation (it appears once the conversation has a message). */
+const claudeFile = (cwd: string, id: string) => join(homedir(), ".claude", "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${id}.jsonl`);
+const claudeHasHistory = (cwd: string, id: string) => existsSync(claudeFile(cwd, id));
 
 export class SessionManager {
   private sessions = new Map<string, Entry>();
@@ -73,7 +73,13 @@ export class SessionManager {
     if (replay) { entry.agent = new ReplaySession(replay, agent, emit); return; }
     const { model, effort } = entry;
     if (agent === "claude") {
-      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume: claudeHasHistory(cwd, entry.nativeId!), model, effort });
+      const resume = claudeHasHistory(cwd, entry.nativeId!);
+      // Show the saved conversation first, so Chat matches whatever happened in the Terminal view.
+      if (resume) {
+        try { emit({ kind: "history", events: claudeHistory(readFileSync(claudeFile(cwd, entry.nativeId!), "utf8")) }); }
+        catch (err) { emit({ kind: "error", message: `Couldn't read the saved conversation: ${(err as Error).message}` }); }
+      }
+      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume, model, effort });
       return;
     }
     // Codex and Grok: continue the known conversation, or the newest one if it began in the terminal.
@@ -106,7 +112,9 @@ export class SessionManager {
     const known = id && entry.hadTurn;
     if (agent === "codex") {
       const flags = [...(model ? ["-m", model] : []), ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : [])];
-      return ["codex", known ? ["resume", ...flags, id] : flags];
+      // --no-daemon: the terminal must own the conversation and release it on exit; the shared
+      // background server would keep holding it and block the Chat view from resuming.
+      return ["codex", known ? ["resume", "--no-daemon", ...flags, id] : ["--no-daemon", ...flags]];
     }
     const flags = [...(model ? ["-m", model] : []), ...(effort ? ["--reasoning-effort", effort] : [])];
     return ["grok", known ? [...flags, "--resume", id] : flags];
@@ -116,7 +124,15 @@ export class SessionManager {
   private typeWhenReady(entry: Entry, text: string) {
     const gen = entry.gen;
     let sent = false;
-    const send = () => { if (!sent && gen === entry.gen) { sent = true; entry.term?.write(text); } };
+    // Type the text, then press Enter separately: sent together, terminal interfaces read them as a
+    // paste and Codex, for one, turns the Enter into a new line instead of submitting.
+    const body = text.replace(/\r$/, "");
+    const send = () => {
+      if (sent || gen !== entry.gen) return;
+      sent = true;
+      entry.term?.write(body);
+      if (body !== text) setTimeout(() => { if (gen === entry.gen) entry.term?.write("\r"); }, 250);
+    };
     entry.pendingType = () => setTimeout(send, 1200);
     setTimeout(send, 6000); // fallback if the interface stays quiet
   }
@@ -151,7 +167,6 @@ export class SessionManager {
     } else {
       entry.term?.close();
       entry.term = undefined;
-      this.sink.event(id, { kind: "notice", text: "Back from the terminal. Anything you did there is part of this conversation, but it isn't drawn here yet." });
       this.startGui(entry);
     }
   }

@@ -35,7 +35,8 @@ export function App() {
   // Screenshot automation only: optionally send one prompt, then open the Terminal view.
   const autoView = useRef<"terminal" | null>(null);
   const autoPrompt = useRef<string | null>(null);
-  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; }); }, []);
+  const autoType = useRef<string | null>(null);
+  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; autoType.current = i.autoType; }); }, []);
   useEffect(() => window.agents.onEvent((id, e) => {
     setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, e) } : prev));
   }), []);
@@ -58,7 +59,7 @@ export function App() {
   useEffect(() => {
     if (autoView.current && active && !autoPrompt.current && active.items.some((i) => i.type === "turn")) {
       autoView.current = null;
-      window.agents.setView(active.info.id, "terminal");
+      window.agents.setView(active.info.id, "terminal", undefined, undefined, autoType.current ?? undefined);
     }
   }, [active]);
   const agent: AgentId = active?.info.agent ?? "claude";

@@ -85,6 +85,29 @@ describe.skipIf(!HAS_EDIT)("ClaudeMapper on the one-shot fixture with errors", (
   });
 });
 
+describe("claudeHistory (rebuilding a saved conversation)", () => {
+  const saved = [
+    { type: "permission-mode", permissionMode: "default" },
+    { type: "user", uuid: "u1", message: { role: "user", content: "Add a sub function" } },
+    { type: "user", uuid: "m1", isMeta: true, message: { role: "user", content: "<system-reminder>hidden</system-reminder>" } },
+    { type: "assistant", uuid: "a1", message: { id: "msg1", content: [{ type: "thinking", thinking: "Plan the edit" }] } },
+    { type: "assistant", uuid: "a2", message: { id: "msg1", content: [{ type: "tool_use", id: "t1", name: "Edit", input: { file_path: "/x/calc.py", old_string: "a", new_string: "b" } }] } },
+    { type: "user", uuid: "u2", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+      toolUseResult: { filePath: "/x/calc.py", structuredPatch: [{ oldStart: 1, newStart: 1, lines: ["-a", "+b"] }] } },
+    { type: "assistant", uuid: "a3", message: { id: "msg2", content: [{ type: "text", text: "Done." }] } },
+    { type: "user", uuid: "u3", message: { role: "user", content: "<command-name>/compact</command-name>\n<command-args></command-args>" } },
+    { type: "assistant", uuid: "s1", isSidechain: true, message: { id: "msg3", content: [{ type: "text", text: "subagent chatter" }] } },
+  ].map((l) => JSON.stringify(l)).join("\n");
+
+  it("replays messages, thinking, tools and results in order, skipping hidden entries", async () => {
+    const { claudeHistory } = await import("../src/main/adapters/claude-mapper");
+    const evs = claudeHistory(saved);
+    expect(evs.map((e) => e.kind)).toEqual(["user.message", "thinking.done", "tool.started", "tool.finished", "message.done", "user.message"]);
+    expect(evs[3]).toMatchObject({ ok: true, result: { kind: "edit", hunks: [{ lines: ["-a", "+b"] }] } });
+    expect(evs[5]).toMatchObject({ text: "/compact" });
+  });
+});
+
 describe("permission responses", () => {
   it("echoes input on allow and adds rules on always", () => {
     const m = new ClaudeMapper();

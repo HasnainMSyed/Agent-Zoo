@@ -99,6 +99,15 @@ export class CodexSession implements AgentSession {
       this.mapper.threadId = res.thread.id;
       this.emit({ kind: "session.started", agent: "codex", sessionId: res.thread.id, model: res.model ?? res.thread.model, cwd: this.cwd });
     }
+    if (threadId) {
+      // Show the saved conversation, so Chat matches whatever happened in the Terminal view.
+      try {
+        const turns = await this.rpc("thread/turns/list", { threadId: res.thread.id, itemsView: "full", sortDirection: "asc", limit: 500 });
+        this.emit({ kind: "history", events: this.mapper.history(turns.data ?? []) });
+      } catch (err) {
+        this.emit({ kind: "error", message: `Couldn't load the earlier conversation: ${(err as Error).message}` });
+      }
+    }
     return res.thread.id as string;
   }
 

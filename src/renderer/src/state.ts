@@ -128,6 +128,12 @@ export function apply(s: Session, e: AgentEvent): Session {
     case "notice":
       items.push({ type: "notice", id: `notice-${++turnSeq}`, text: e.text });
       return { ...s, items };
+    case "history": {
+      // Rebuild the transcript from the agent's saved copy, then settle: nothing is running.
+      let next: Session = { ...s, items: [], plan: [] };
+      for (const ev of e.events) next = apply(next, ev);
+      return { ...next, status: "idle", running: false };
+    }
     case "commands": return { ...s, commands: e.commands };
     case "models":
       // An empty list only updates the current choice (Codex sends this after a change).

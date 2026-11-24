@@ -43,6 +43,8 @@ export type AgentEvent =
   | { kind: "commands"; commands: SlashCommand[] }
   | { kind: "models"; models: ModelOption[]; current?: string; effort?: string }
   | { kind: "view"; view: "gui" | "terminal" }
+  /** The full saved conversation; replaces the Chat transcript so it matches the agent exactly. */
+  | { kind: "history"; events: AgentEvent[] }
   | { kind: "notice"; text: string }
   | { kind: "exited"; code: number | null };
 
