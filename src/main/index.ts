@@ -111,6 +111,8 @@ ipcMain.handle("account:run", (_e, agent: AgentId, action: "login" | "logout", c
   return manager.runUtility(cmd[0]!, cmd.slice(1), cols, rows);
 });
 ipcMain.handle("account:close", (_e, id: string) => manager.closeUtility(id));
+ipcMain.handle("shell:open", (_e, sessionId: string, cols?: number, rows?: number) => manager.openShell(sessionId, cols, rows));
+ipcMain.handle("shell:close", (_e, id: string) => manager.closeShell(id));
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));

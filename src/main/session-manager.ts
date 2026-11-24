@@ -206,6 +206,24 @@ export class SessionManager {
   }
   closeUtility(id: string) { this.utilities.get(id)?.close(); this.utilities.delete(id); }
 
+  /** Shells beside a conversation (the Terminal pane), started in its folder; they close with it. */
+  private shells = new Map<string, Set<string>>();
+  openShell(sessionId: string, cols?: number, rows?: number): string {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new Error("That session has ended. Start a new one.");
+    const win = process.platform === "win32";
+    const shell = win ? (process.env.COMSPEC || "powershell.exe") : (process.env.SHELL || "/bin/bash");
+    const id = this.runUtility(shell, win ? [] : ["-l"], cols, rows, s.info.cloud ? homedir() : s.info.cwd);
+    const set = this.shells.get(sessionId) ?? new Set<string>();
+    set.add(id);
+    this.shells.set(sessionId, set);
+    return id;
+  }
+  closeShell(id: string) {
+    this.closeUtility(id);
+    for (const set of this.shells.values()) set.delete(id);
+  }
+
   command(id: string, cmd: SessionCommand) {
     const s = this.sessions.get(id);
     if (!s) throw new Error("That session has ended. Start a new one.");
@@ -246,6 +264,8 @@ export class SessionManager {
     s.gen++;
     s.agent?.close();
     s.term?.close();
+    for (const shell of this.shells.get(id) ?? []) this.closeUtility(shell);
+    this.shells.delete(id);
     this.sessions.delete(id);
   }
 

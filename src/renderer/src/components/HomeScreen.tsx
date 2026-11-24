@@ -18,7 +18,8 @@ interface Project { cwd: string; sessions: PastSession[]; updatedAt: number }
 
 export function HomeScreen({ home, past, loading, usage, lastAgent, onPickLead, onOpenFolder, onStart, onResume }: {
   home: string; past: PastSession[]; loading: boolean; usage: Partial<Record<AgentId, UsageLimits>>; lastAgent: AgentId;
-  onPickLead: (agent: AgentId) => void;
+  /** `from`: the centre of the clicked mascot, where the new colours spread from. */
+  onPickLead: (agent: AgentId, from?: { x: number; y: number }) => void;
   onOpenFolder: () => Promise<string | null>;
   onStart: (agent: AgentId, cwd: string, prompt: string) => void;
   onResume: (s: PastSession) => void;
@@ -58,7 +59,7 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onPickLead, 
         <div className="home-mascots" role="radiogroup" aria-label="Lead agent">
           {AGENTS.map((a) => (
             <button key={a} role="radio" aria-checked={a === lastAgent} data-skin={a} className={a === lastAgent ? "lead" : ""}
-              onClick={() => onPickLead(a)} title={a === lastAgent ? `${AGENT_NAMES[a]} leads: new sessions start with it` : `Make ${AGENT_NAMES[a]} the lead`}>
+              onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); onPickLead(a, { x: r.left + r.width / 2, y: r.top + r.height / 2 }); }} title={a === lastAgent ? `${AGENT_NAMES[a]} leads: new sessions start with it` : `Make ${AGENT_NAMES[a]} the lead`}>
               <Mascot pack={packFor(a)} state="idle" size={a === lastAgent ? 64 : 46} />
             </button>
           ))}

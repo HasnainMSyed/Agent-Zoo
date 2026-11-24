@@ -4,6 +4,7 @@
 //    saved, grouped by folder, with search and agent tabs. Picking one opens it and closes the drawer.
 
 import { useEffect, useMemo, useState } from "react";
+import type React from "react";
 import type { AgentId } from "@shared/events";
 import type { PastSession } from "@shared/commands";
 import type { Session } from "../state";
@@ -35,64 +36,161 @@ function OpenRow({ s, active, label, onSelect, onClose }: { s: Session; active: 
   );
 }
 
-/** The sidebar: open sessions only, by folder, plus the button that opens the browser. */
-export function SessionNav({ sessions, activeId, label, savedCount, browsing, onSelect, onClose, onBrowse }: {
-  sessions: Session[]; activeId: string | null; label: (s: Session) => string; savedCount: number; browsing: boolean;
+/** What a drag from the drawer carries: saved conversations to open, folders to pin. */
+export interface DragLoad { sessions: { agent: AgentId; id: string }[]; folders: string[] }
+const DRAG_TYPE = "application/x-zoo-sessions";
+
+function startDrag(e: React.DragEvent, load: DragLoad) {
+  e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(load));
+  e.dataTransfer.effectAllowed = "copy";
+  // A small pill instead of the row's ghost: "3 sessions", "2 folders".
+  const n = load.sessions.length, f = load.folders.length;
+  const pill = document.createElement("div");
+  pill.className = "drag-pill";
+  pill.textContent = [f ? `${f} folder${f > 1 ? "s" : ""}` : "", n ? `${n} session${n > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+  document.body.appendChild(pill);
+  e.dataTransfer.setDragImage(pill, 12, 12);
+  setTimeout(() => pill.remove(), 0);
+  document.body.classList.add("zoo-dragging");
+}
+const endDrag = () => document.body.classList.remove("zoo-dragging");
+
+/** Makes an element accept drops from the drawer. */
+export function useDropTarget(onDrop: (load: DragLoad) => void) {
+  const [over, setOver] = useState(false);
+  const accepts = (e: React.DragEvent) => e.dataTransfer.types.includes(DRAG_TYPE);
+  return {
+    over,
+    props: {
+      onDragOver: (e: React.DragEvent) => { if (!accepts(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; if (!over) setOver(true); },
+      onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false); },
+      onDrop: (e: React.DragEvent) => {
+        setOver(false); endDrag();
+        if (!accepts(e)) return;
+        e.preventDefault();
+        try { onDrop(JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as DragLoad); } catch { /* not ours */ }
+      },
+    },
+  };
+}
+
+/**
+ * The sidebar: the sessions open here, plus folders you've pinned (by dragging them in from the
+ * drawer), each a foldable group. A pinned folder also lists its saved conversations.
+ */
+export function SessionNav({ sessions, past, pinned, folded, setFolded, activeId, label, savedCount, browsing, onSelect, onClose, onBrowse, onResume, onUnpin, onDrop }: {
+  sessions: Session[]; past: PastSession[]; pinned: string[]; folded: string[]; setFolded: (v: string[]) => void;
+  activeId: string | null; label: (s: Session) => string; savedCount: number; browsing: boolean;
   onSelect: (id: string) => void; onClose: (id: string) => void; onBrowse: () => void;
+  onResume: (p: PastSession) => void; onUnpin: (path: string) => void; onDrop: (load: DragLoad) => void;
 }) {
+  const [showAll, setShowAll] = useState<string[]>([]);
+  const drop = useDropTarget(onDrop);
   const groups = useMemo(() => {
-    const map = new Map<string, { name: string; path: string; items: Session[] }>();
-    for (const s of sessions) {
-      const key = folderKey(s);
-      const g = map.get(key) ?? { name: s.info.cloud ? "Claude cloud" : folderName(s.info.cwd), path: s.info.cwd, items: [] };
-      g.items.push(s);
-      map.set(key, g);
+    const map = new Map<string, { name: string; path: string; pinned: boolean; items: Session[]; saved: PastSession[] }>();
+    const get = (key: string, path: string, name: string) => {
+      let g = map.get(key);
+      if (!g) { g = { name, path, pinned: false, items: [], saved: [] }; map.set(key, g); }
+      return g;
+    };
+    for (const path of pinned) get(path, path, folderName(path)).pinned = true;
+    for (const s of sessions) get(folderKey(s), s.info.cwd, s.info.cloud ? "Claude cloud" : folderName(s.info.cwd)).items.push(s);
+    for (const p of past) {
+      const g = !p.cloud ? map.get(p.cwd) : undefined;
+      if (g?.pinned && !sessions.some((s) => sameConversation(s, p))) g.saved.push(p);
     }
+    for (const g of map.values()) g.saved.sort((a, b) => b.updatedAt - a.updatedAt);
     return [...map.entries()];
-  }, [sessions]);
+  }, [sessions, past, pinned]);
+  const toggle = (key: string) => setFolded(folded.includes(key) ? folded.filter((k) => k !== key) : [...folded, key]);
   return (
     <>
       <button className={`browse-btn ${browsing ? "on" : ""}`} onClick={onBrowse} aria-expanded={browsing}>
         <span aria-hidden="true">☰</span><span className="bb-label">All sessions</span>
         {savedCount > 0 && <span className="bb-count">{savedCount}</span>}
       </button>
-      <nav className="session-list" aria-label="Open sessions">
-        {groups.length > 0 && <span className="nav-label">Open</span>}
-        {groups.map(([key, g]) => (
-          <div key={key} className="folder-group">
-            <div className="folder-label" title={g.path}>{g.name}</div>
-            {g.items.map((s) => <OpenRow key={s.info.id} s={s} active={s.info.id === activeId} label={label(s)} onSelect={() => onSelect(s.info.id)} onClose={() => onClose(s.info.id)} />)}
-          </div>
-        ))}
+      <nav className={`session-list drop-zone ${drop.over ? "drop-over" : ""}`} aria-label="Open sessions" {...drop.props}>
+        {groups.map(([key, g]) => {
+          const isFolded = folded.includes(key) && !g.items.some((s) => s.info.id === activeId);
+          const all = showAll.includes(key);
+          const saved = all ? g.saved : g.saved.slice(0, Math.max(0, PER_FOLDER - g.items.length));
+          return (
+            <div key={key} className={`folder-group nav-group ${g.pinned ? "pinned" : ""}`}>
+              <div className="folder-label-row">
+                <button className="folder-label" aria-expanded={!isFolded} title={g.path} onClick={() => toggle(key)}>
+                  <span className={`chev-small ${isFolded ? "" : "open"}`} aria-hidden="true">›</span>
+                  <span className="folder-label-name">{g.name}</span>
+                  {isFolded && <span className="folder-label-count">{g.items.length || g.saved.length}</span>}
+                </button>
+                {g.pinned && <button className="unpin" onClick={() => onUnpin(g.path)} aria-label={`Unpin ${g.name}`} title="Unpin this folder">×</button>}
+              </div>
+              <div className="fold" data-open={!isFolded}><div className="fold-inner">
+                {g.items.map((s) => <OpenRow key={s.info.id} s={s} active={s.info.id === activeId} label={label(s)} onSelect={() => onSelect(s.info.id)} onClose={() => onClose(s.info.id)} />)}
+                {saved.map((p) => (
+                  <div key={`${p.agent}-${p.id}`} className="session-row past">
+                    <button onClick={() => onResume(p)} title={p.title}>
+                      <span className={`dot hollow agent-${p.agent}`} aria-hidden="true" />
+                      <span className="session-name">{p.title}</span>
+                      <span className="session-agent">{AGENT_NAMES[p.agent]} · {timeAgo(p.updatedAt)}</span>
+                    </button>
+                  </div>
+                ))}
+                {saved.length < g.saved.length && <button className="show-all" onClick={() => setShowAll([...showAll, key])}>Show all ({g.saved.length})</button>}
+                {g.pinned && !g.items.length && !g.saved.length && <p className="muted tiny pad-l">No saved conversations here yet.</p>}
+              </div></div>
+            </div>
+          );
+        })}
         {!groups.length && (
           <div className="nav-empty">
             <p className="muted small">No sessions open.</p>
+            <p className="muted tiny">Drag sessions or whole folders here from All sessions.</p>
             <button className="btn-small" onClick={onBrowse}>Browse past sessions</button>
           </div>
         )}
+        <div className="drop-hint" aria-hidden="true">Drop to open here</div>
       </nav>
     </>
   );
 }
 
 /** The drawer with every saved conversation: search, agent tabs, folders. */
-export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded, label, onSelect, onResume, onOpenCloud, onCloudTask, onDismiss }: {
+export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded, label, onSelect, onResume, onOpenMany, onPin, onOpenCloud, onCloudTask, onDismiss }: {
   sessions: Session[]; past: PastSession[]; activeId: string | null;
   expanded: string[]; setExpanded: (v: string[]) => void;
   label: (s: Session) => string;
-  onSelect: (id: string) => void; onResume: (p: PastSession) => void; onOpenCloud: (link: string) => void; onCloudTask: (p: PastSession) => void;
+  onSelect: (id: string) => void; onResume: (p: PastSession) => void;
+  /** Several saved conversations at once (Select mode). */
+  onOpenMany: (list: PastSession[]) => void; onPin: (path: string) => void;
+  onOpenCloud: (link: string) => void; onCloudTask: (p: PastSession) => void;
   onDismiss: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"all" | AgentId>("all");
   const [showAll, setShowAll] = useState<string[]>([]);
   const [cloudInput, setCloudInput] = useState<string | null>(null);
+  // Select mode: tick several conversations, then open them together or drag them into the sidebar.
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const keyOf = (p: { agent: AgentId; id: string }) => `${p.agent}:${p.id}`;
+  const pick = (keys: string[], on: boolean) => setPicked((cur) => (on ? [...new Set([...cur, ...keys])] : cur.filter((k) => !keys.includes(k))));
+  const pickedList = past.filter((p) => picked.includes(keyOf(p)));
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onDismiss(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (selecting) { setSelecting(false); setPicked([]); } else onDismiss();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onDismiss]);
+  }, [onDismiss, selecting]);
+  useEffect(() => endDrag, []);
+
+  /** Dragging a ticked row takes every ticked row with it. */
+  const dragRow = (e: React.DragEvent, p: PastSession) => {
+    const list = selecting && picked.includes(keyOf(p)) ? pickedList : [p];
+    startDrag(e, { sessions: list.map((x) => ({ agent: x.agent, id: x.id })), folders: [] });
+  };
 
   const counts = useMemo(() => {
     const c: Record<"all" | AgentId, number> = { all: 0, claude: 0, codex: 0, grok: 0 };
@@ -132,7 +230,11 @@ export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded
       <aside className="session-browser" role="dialog" aria-label="All sessions" onMouseDown={(e) => e.stopPropagation()}>
         <div className="browser-head">
           <strong>All sessions</strong>
-          <button className="icon-btn" onClick={onDismiss} aria-label="Close" title="Close (Esc)">×</button>
+          <span className="browser-head-actions">
+            <button className={`btn-small select-toggle ${selecting ? "on" : ""}`} aria-pressed={selecting}
+              onClick={() => { setSelecting(!selecting); setPicked([]); }} title="Pick several sessions to open together">{selecting ? "Done" : "Select"}</button>
+            <button className="icon-btn" onClick={onDismiss} aria-label="Close" title="Close (Esc)">×</button>
+          </span>
         </div>
         <input className="browser-search" type="search" autoFocus placeholder="Search by title or folder" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search sessions" />
         <div className="agent-tabs" role="tablist" aria-label="Filter by agent">
@@ -155,14 +257,25 @@ export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded
             const shownPast = all ? pastHits : pastHits.slice(0, Math.max(0, PER_FOLDER - open.length));
             const hidden = pastHits.length - shownPast.length;
             const agents = [...new Set([...f.open.map((s) => s.info.agent), ...f.past.map((p) => p.agent)])] as AgentId[];
+            const local = !f.key.startsWith("cloud:");
+            const folderKeys = local ? pastHits.map(keyOf) : [];
+            const allPicked = folderKeys.length > 0 && folderKeys.every((k) => picked.includes(k));
             return (
               <div key={f.key} className="folder-group">
+                <div className="folder-head-row" draggable={local} title={local ? "Drag into the sidebar to pin this folder" : undefined}
+                  onDragStart={(e) => startDrag(e, { sessions: [], folders: [f.path] })} onDragEnd={endDrag}>
+                {selecting && local && (
+                  <button className={`check ${allPicked ? "on" : ""}`} role="checkbox" aria-checked={allPicked} aria-label={`Select every session in ${f.name}`}
+                    onClick={() => pick(folderKeys, !allPicked)} />
+                )}
                 <button className="folder-head" aria-expanded={isOpen} title={f.path} onClick={() => toggle(f.key)}>
                   <span className={`chev-small ${isOpen ? "open" : ""}`} aria-hidden="true">›</span>
                   <span className="folder-name">{f.name}</span>
                   <span className="folder-dots" aria-hidden="true">{agents.map((a) => <span key={a} className={`dot mini agent-${a}`} />)}</span>
                   <span className="folder-count">{f.open.length ? <strong>{f.open.length} open</strong> : null}{f.open.length && f.past.length ? " · " : ""}{f.past.length || ""}</span>
                 </button>
+                {local && !selecting && <button className="pin-btn" onClick={() => onPin(f.path)} aria-label={`Pin ${f.name} to the sidebar`} title="Pin to the sidebar">⇤</button>}
+                </div>
                 <div className="fold" data-open={isOpen}><div className="fold-inner">
                   {open.map((s) => (
                     <div key={s.info.id} className={`session-row ${s.info.id === activeId ? "active" : ""}`}>
@@ -173,10 +286,16 @@ export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded
                       </button>
                     </div>
                   ))}
-                  {shownPast.map((p) => (
-                    <div key={`${p.agent}-${p.id}`} className="session-row past">
-                      <button onClick={() => { if (p.cloud) onCloudTask(p); else onResume(p); onDismiss(); }} title={p.liveElsewhere ? "This conversation looks like it's running somewhere else right now" : p.title}>
-                        <span className={`dot hollow agent-${p.agent}`} aria-hidden="true" />
+                  {shownPast.map((p) => {
+                    const on = picked.includes(keyOf(p));
+                    const canPick = selecting && !p.cloud;
+                    return (
+                    <div key={`${p.agent}-${p.id}`} className={`session-row past ${on ? "picked" : ""}`} draggable={!p.cloud}
+                      onDragStart={(e) => dragRow(e, p)} onDragEnd={endDrag}>
+                      <button onClick={() => { if (canPick) { pick([keyOf(p)], !on); return; } if (p.cloud) onCloudTask(p); else onResume(p); onDismiss(); }}
+                        role={canPick ? "checkbox" : undefined} aria-checked={canPick ? on : undefined}
+                        title={p.liveElsewhere ? "This conversation looks like it's running somewhere else right now" : p.title}>
+                        {canPick ? <span className={`check ${on ? "on" : ""}`} aria-hidden="true" /> : <span className={`dot hollow agent-${p.agent}`} aria-hidden="true" />}
                         <span className="session-name">{p.title}</span>
                         <span className="session-agent">
                           {AGENT_NAMES[p.agent]} · {p.cloud ? p.status ?? "cloud" : timeAgo(p.updatedAt)}
@@ -184,7 +303,8 @@ export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded
                         </span>
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                   {hidden > 0 && <button className="show-all" onClick={() => setShowAll([...showAll, f.key])}>Show all ({pastHits.length})</button>}
                   {all && !q && pastHits.length > PER_FOLDER && <button className="show-all" onClick={() => setShowAll(showAll.filter((k) => k !== f.key))}>Show fewer</button>}
                 </div></div>
@@ -193,7 +313,17 @@ export function SessionBrowser({ sessions, past, activeId, expanded, setExpanded
           })}
           {shown === 0 && <p className="muted small pad">{q ? `Nothing matches “${query}”` : "No sessions yet"}</p>}
         </div>
-        {cloudInput === null
+        {selecting
+          ? (
+            <div className="select-bar">
+              <span className="muted small">{picked.length ? `${picked.length} selected` : "Tick sessions, or drag them to the sidebar"}</span>
+              <button className="btn-small" disabled={!picked.length} onClick={() => setPicked([])}>Clear</button>
+              <button className="btn-small primary" disabled={!picked.length} onClick={() => { onOpenMany(pickedList); setPicked([]); setSelecting(false); onDismiss(); }}>
+                Open{picked.length ? ` ${picked.length}` : ""}
+              </button>
+            </div>
+          )
+          : cloudInput === null
           ? <button className="cloud-open" onClick={() => setCloudInput("")}>☁ Open a Claude cloud session</button>
           : (
             <form className="cloud-form" onSubmit={(e) => { e.preventDefault(); if (cloudInput.trim()) { onOpenCloud(cloudInput.trim()); setCloudInput(null); onDismiss(); } }}>

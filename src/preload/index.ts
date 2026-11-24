@@ -26,6 +26,9 @@ const api = {
   /** Runs an agent's own sign-in or sign-out in a small terminal; returns its terminal id. */
   accountRun: (agent: AgentId, action: "login" | "logout", cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("account:run", agent, action, cols, rows),
   accountClose: (id: string): Promise<void> => ipcRenderer.invoke("account:close", id),
+  /** A shell in a session's folder for the Terminal pane; returns its terminal id. */
+  shellOpen: (sessionId: string, cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("shell:open", sessionId, cols, rows),
+  shellClose: (id: string): Promise<void> => ipcRenderer.invoke("shell:close", id),
   usage: (): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:get"),
   /** Re-reads plan limits (one agent, or all when omitted). */
   refreshUsage: (agent?: AgentId): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:refresh", agent),

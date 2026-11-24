@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentId, PermissionOption, SessionCommand } from "@shared/events";
 import { apply, newSession, type Session } from "./state";
 import type React from "react";
@@ -11,9 +11,10 @@ import { HomeScreen } from "./components/HomeScreen";
 import { UsageDetails } from "./components/Usage";
 import { CommandPanel, modeLabel } from "./components/Panels";
 import { SettingsPage, initials } from "./components/SettingsPage";
-import { CloudTask, SessionBrowser, SessionNav } from "./components/SessionSidebar";
+import { CloudTask, SessionBrowser, SessionNav, useDropTarget, type DragLoad } from "./components/SessionSidebar";
+import { ShellPane, type ShellState } from "./components/ShellPane";
 import { Subagents, subagentsOf } from "./components/Subagents";
-import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
+import { applySettings, loadSettings, saveSettings, withThemeTransition, type Settings } from "./settings";
 import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
@@ -64,6 +65,17 @@ export function App() {
   const setLayout = (patch: Partial<typeof layoutState>) => setLayoutState({ ...layoutState, ...patch });
   const [folded, setFolded] = usePersisted<string[]>("zoo.folded", []);
   const [expanded, setExpanded] = usePersisted<string[]>("zoo.expandedFolders", []);
+  const [pinned, setPinned] = usePersisted<string[]>("zoo.pinnedFolders", []);
+  const [navFolded, setNavFolded] = usePersisted<string[]>("zoo.navFolded", []);
+  // The Terminal pane: shells per session, whether it's showing, and its width.
+  const [shells, setShells] = useState<ShellState>({});
+  const shellsRef = useRef(shells);
+  shellsRef.current = shells;
+  const [paneOpen, setPaneOpen] = useState(false);
+  const [paneWidth, setPaneWidth] = usePersisted("zoo.paneWidth", 460);
+  // With the terminal open the details panel steps aside (slim), unless you bring it back.
+  const [railWithPane, setRailWithPane] = useState(false);
+  useEffect(() => { if (!paneOpen) setRailWithPane(false); }, [paneOpen]);
   const [cloudTask, setCloudTask] = useState<PastSession | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [sessions, setSessions] = useState<Record<string, Session>>({});
@@ -75,8 +87,14 @@ export function App() {
   const [pastLoading, setPastLoading] = useState(true);
   const [usage, setUsage] = useState<Partial<Record<AgentId, UsageLimits>>>({});
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
-  const setSettings = (s: Settings) => { setSettingsState(s); saveSettings(s); };
-  useEffect(() => { applySettings(settings); }, [settings]);
+  const setSettings = (s: Settings) => {
+    const commit = () => { setSettingsState(s); saveSettings(s); };
+    // Colour changes (theme, skin, agent colours) cross-fade instead of cutting.
+    const looks = (x: Settings) => JSON.stringify([x.theme, x.skin, x.agentColors]);
+    if (looks(s) !== looks(settings)) withThemeTransition(commit); else commit();
+  };
+  // A layout effect, so the page is re-coloured inside a theme transition's update.
+  useLayoutEffect(() => { applySettings(settings); }, [settings]);
   // Mascot packs: the user's own (from the app's data folder) plus the choice per agent.
   const [packs, setPacks] = useState<MascotPack[]>(allPacks);
   const loadPacks = useCallback(() => {
@@ -126,6 +144,12 @@ export function App() {
   // history right away), so events for an unknown session wait until it appears.
   const early = useRef(new Map<string, AgentEvent[]>());
   useEffect(() => window.agents.onEvent((id, e) => {
+    if (id.startsWith("util-") && e.kind === "exited") {
+      setShells((prev) => {
+        const sid = Object.keys(prev).find((k) => prev[k]!.list.some((x) => x.id === id));
+        return sid ? { ...prev, [sid]: { ...prev[sid]!, list: prev[sid]!.list.map((x) => (x.id === id ? { ...x, exited: true } : x)) } } : prev;
+      });
+    }
     if (!sessionsRef.current[id] && !id.startsWith("util-")) {
       const list = early.current.get(id) ?? [];
       list.push(e);
@@ -183,7 +207,8 @@ export function App() {
   };
   const runCommand = (id: string, cmd: SessionCommand) => { window.agents.command(id, cmd).catch((err) => showError(id, err)); };
   const closeSession = (id: string) => {
-    window.agents.closeSession(id).then(() => refreshPast());
+    window.agents.closeSession(id).then(() => refreshPast()); // also ends its shells
+    setShells((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setSessions((prev) => { const next = { ...prev }; delete next[id]; return next; });
     if (activeId === id) setActiveId(null);
   };
@@ -197,6 +222,59 @@ export function App() {
     if (ps.liveElsewhere && !window.confirm(`“${ps.title}” looks like it's running somewhere else right now (it changed in the last minute). Opening it here too can mix up the two. Open anyway?`)) return;
     start(ps.agent, { cwd: ps.cwd, resumeId: ps.id });
   };
+  /** Opens several saved conversations (Select mode, or a drop on the sidebar), asking once about any running elsewhere. */
+  const openMany = async (todo: PastSession[]) => {
+    if (todo.length === 1) { resumePast(todo[0]!); return; }
+    let fresh = todo.filter((p) => !list.some((x) => x.info.agent === p.agent && (x.nativeId ?? x.info.nativeId) === p.id));
+    if (!fresh.length) return;
+    if (fresh.length > 6 && !window.confirm(`Open ${fresh.length} sessions? Each one starts its agent.`)) return;
+    const elsewhere = fresh.filter((p) => p.liveElsewhere);
+    if (elsewhere.length && !window.confirm(`${elsewhere.length} of these look like they're running somewhere else right now. Open them here too? (Cancel opens the others.)`)) {
+      fresh = fresh.filter((p) => !p.liveElsewhere);
+    }
+    for (const p of fresh) await start(p.agent, { cwd: p.cwd, resumeId: p.id });
+  };
+  /** A drop from the drawer: folders get pinned (and unfolded), conversations open. */
+  const onDropLoad = (load: DragLoad) => {
+    if (load.folders.length) {
+      setPinned([...new Set([...pinned, ...load.folders])]);
+      setNavFolded(navFolded.filter((k) => !load.folders.includes(k)));
+    }
+    const todo = load.sessions.map((x) => past.find((p) => p.agent === x.agent && p.id === x.id)).filter((p): p is PastSession => Boolean(p));
+    if (todo.length) openMany(todo);
+  };
+  const slimDrop = useDropTarget(onDropLoad);
+  /** Switching to a session of another agent re-colours the app, so it fades across. */
+  const selectSession = (id: string) => {
+    const next = sessions[id];
+    const go = () => { setActiveId(id); setShowSettings(false); };
+    if (settings.skin === "agent" && next && next.info.agent !== agent) withThemeTransition(go); else go();
+  };
+  const newShell = useCallback(async () => {
+    const sid = activeId;
+    if (!sid) return;
+    try {
+      const id = await window.agents.shellOpen(sid);
+      setShells((prev) => {
+        const cur = prev[sid] ?? { list: [], current: null };
+        const name = sessionsRef.current[sid]?.info.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "shell";
+        const n = cur.list.length ? ` ${cur.list.length + 1}` : "";
+        return { ...prev, [sid]: { list: [...cur.list, { id, label: name + n }], current: id } };
+      });
+    } catch (err) { showError(sid, err); setPaneOpen(false); }
+  }, [activeId]);
+  const closeShell = (id: string) => {
+    window.agents.shellClose(id);
+    setShells((prev) => {
+      const next: ShellState = {};
+      for (const [sid, v] of Object.entries(prev)) {
+        const rest = v.list.filter((x) => x.id !== id);
+        next[sid] = { list: rest, current: v.current === id ? rest[rest.length - 1]?.id ?? null : v.current };
+      }
+      return next;
+    });
+    if (activeId && shellsRef.current[activeId]?.list.length === 1 && shellsRef.current[activeId]!.list[0]!.id === id) setPaneOpen(false);
+  };
   const openCloud = (link: string) => start("claude", { cwd: home || cwd, cloud: link });
   const empty = active ? (
     <div className="empty-state">
@@ -206,7 +284,10 @@ export function App() {
   ) : (
     <>
       <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={leadAgent}
-        onPickLead={(a) => { setLastAgent(a); if (settings.defaultAgent !== "last") setSettings({ ...settings, defaultAgent: a }); }}
+        onPickLead={(a, from) => withThemeTransition(() => {
+          setLastAgent(a);
+          if (settings.defaultAgent !== "last") { const s = { ...settings, defaultAgent: a }; setSettingsState(s); saveSettings(s); }
+        }, from)}
         onOpenFolder={() => window.agents.pickFolder()}
         onStart={(a, folder, prompt) => { start(a, { cwd: folder, prompt: prompt || undefined }); }}
         onResume={resumePast} />
@@ -214,10 +295,12 @@ export function App() {
     </>
   );
 
+  const paneVisible = paneOpen && Boolean(active) && !showSettings;
+  const railOpen = layout.right && (!paneVisible || railWithPane);
   const sessionLabel = (s: Session) => s.title ?? `${AGENT_NAMES[s.info.agent]} session`;
 
   return (
-    <div className={`app ${layout.left ? "" : "no-left"} ${!active || showSettings ? "no-rail" : layout.right ? "" : "slim-right"}`}
+    <div className={`app ${layout.left ? "" : "no-left"} ${!active || showSettings ? "no-rail" : railOpen ? "" : "slim-right"}`}
       data-skin={settings.skin === "agent" ? agent : settings.skin}
       style={{ "--agent-claude": settings.agentColors.claude, "--agent-codex": settings.agentColors.codex, "--agent-grok": settings.agentColors.grok } as React.CSSProperties}>
       {layout.left ? (
@@ -227,9 +310,10 @@ export function App() {
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>
           <button className="new-session" onClick={() => { setActiveId(null); setShowSettings(false); }}>+ New session</button>
-          <SessionNav sessions={list} activeId={activeId} label={sessionLabel} browsing={browsing}
+          <SessionNav sessions={list} past={past} pinned={pinned} folded={navFolded} setFolded={setNavFolded} activeId={activeId} label={sessionLabel} browsing={browsing}
+            onResume={resumePast} onUnpin={(path) => setPinned(pinned.filter((p) => p !== path))} onDrop={onDropLoad}
             savedCount={past.filter((p) => !list.some((s) => s.info.agent === p.agent && (s.nativeId ?? s.info.nativeId) === p.id)).length}
-            onSelect={(id) => { setActiveId(id); setShowSettings(false); }} onClose={closeSession} onBrowse={() => setBrowsing(!browsing)} />
+            onSelect={selectSession} onClose={closeSession} onBrowse={() => setBrowsing(!browsing)} />
           <button className={`profile-row ${showSettings ? "on" : ""}`} onClick={() => setShowSettings(!showSettings)} title="Settings">
             <span className="avatar" aria-hidden="true">{initials(settings.displayName || user)}</span>
             <span className="profile-name">{settings.displayName || user || "You"}</span>
@@ -237,12 +321,12 @@ export function App() {
           </button>
         </aside>
       ) : (
-        <aside className="sidebar-slim">
+        <aside className={`sidebar-slim drop-zone ${slimDrop.over ? "drop-over" : ""}`} {...slimDrop.props}>
           <button className="icon-btn" onClick={() => setLayout({ left: true })} aria-label="Show the sessions panel" title="Show the sessions panel">»</button>
           <button className="icon-btn" onClick={() => { setActiveId(null); setShowSettings(false); }} aria-label="New session" title="New session">+</button>
           <button className="icon-btn" onClick={() => setBrowsing(!browsing)} aria-label="All sessions" title="All sessions">☰</button>
           {list.map((s) => (
-            <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => { setActiveId(s.info.id); setShowSettings(false); }} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
+            <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => selectSession(s.info.id)} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
               <span className={`dot agent-${s.info.agent} ${s.status}`} aria-hidden="true" />
             </button>
           ))}
@@ -251,6 +335,7 @@ export function App() {
       )}
 
       <main className="main" ref={mainRef}>
+        <div className="main-col">
         {showSettings ? (
           <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)}
             packs={packs} onPacksChanged={loadPacks}
@@ -273,6 +358,12 @@ export function App() {
               {active.model && <span className="chip">{active.model}</span>}
               <ContextRing used={active.usage?.contextUsed} total={active.usage?.contextWindow} />
               {active.usage?.costUsd !== undefined && <span className="chip">${active.usage.costUsd.toFixed(2)}</span>}
+              <span className="topbar-tools">
+                <button className={`tool-btn ${paneOpen ? "on" : ""}`} aria-pressed={paneOpen} onClick={() => setPaneOpen(!paneOpen)}
+                  title={paneOpen ? "Hide the terminal" : `Open a terminal in ${active.info.cwd}`} aria-label="Terminal">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7l5 5-5 5M12 17h7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+              </span>
             </div>
           </header>
         )}
@@ -302,11 +393,18 @@ export function App() {
         )}
         </>}
         </>}
+        </div>
+        {Object.keys(shells).length > 0 || (paneOpen && active) ? (
+          <ShellPane visible={paneVisible} state={shells} sessionId={active?.info.id ?? null}
+            folder={active?.info.cwd ?? ""} width={paneWidth} setWidth={setPaneWidth}
+            onNew={newShell} onClose={closeShell} onHide={() => setPaneOpen(false)}
+            onPick={(id) => activeId && setShells((prev) => ({ ...prev, [activeId]: { ...prev[activeId]!, current: id } }))} />
+        ) : null}
       </main>
 
-      {active && !showSettings && layout.right && (
+      {active && !showSettings && railOpen && (
         <aside className="rail">
-          <div className="rail-top"><button className="icon-btn" onClick={() => setLayout({ right: false })} aria-label="Hide the details panel" title="Hide the details panel">»</button></div>
+          <div className="rail-top"><button className="icon-btn" onClick={() => (paneVisible ? setRailWithPane(false) : setLayout({ right: false }))} aria-label="Hide the details panel" title="Hide the details panel">»</button></div>
           <RailSection title="Usage" id="usage" folded={folded} setFolded={setFolded}
             summary={usage[active.info.agent]?.windows[0] ? `${usage[active.info.agent]!.windows[0]!.usedPct}%` : undefined}>
             <UsageDetails agent={active.info.agent} usage={usage[active.info.agent]} sessionCost={active.usage?.costUsd} />
@@ -338,14 +436,15 @@ export function App() {
           </RailSection>
         </aside>
       )}
-      {active && !showSettings && !layout.right && (
+      {active && !showSettings && !railOpen && (
         <aside className="rail-slim">
-          <button className="icon-btn" onClick={() => setLayout({ right: true })} aria-label="Show the details panel" title="Show the details panel">«</button>
+          <button className="icon-btn" onClick={() => { setLayout({ right: true }); if (paneVisible) setRailWithPane(true); }} aria-label="Show the details panel" title="Show the details panel">«</button>
         </aside>
       )}
       {browsing && (
         <SessionBrowser sessions={list} past={past} activeId={activeId} expanded={expanded} setExpanded={setExpanded} label={sessionLabel}
-          onSelect={(id) => { setActiveId(id); setShowSettings(false); }} onResume={resumePast} onOpenCloud={openCloud} onCloudTask={setCloudTask}
+          onSelect={selectSession} onResume={resumePast} onOpenMany={openMany}
+          onPin={(path) => { setPinned([...new Set([...pinned, path])]); setNavFolded(navFolded.filter((k) => k !== path)); }} onOpenCloud={openCloud} onCloudTask={setCloudTask}
           onDismiss={() => setBrowsing(false)} />
       )}
       {cloudTask && <CloudTask task={cloudTask} onPickFolder={() => window.agents.pickFolder()} onClose={() => setCloudTask(null)} />}
