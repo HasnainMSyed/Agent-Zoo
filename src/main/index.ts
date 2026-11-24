@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, watch, writeFileSync } from "node:fs";
 import type { AgentEvent, AgentId, SessionCommand } from "@shared/events";
 import { SessionManager } from "./session-manager";
 import { UsageStore } from "./usage-store";
@@ -9,6 +9,7 @@ import { claudeUsageOnce } from "./adapters/claude";
 import { claudeUsageLimits } from "./adapters/claude-mapper";
 import { accounts, ACCOUNT_COMMANDS } from "./accounts";
 import { grokUsage } from "./grok-usage";
+import { MascotStore } from "./mascots";
 import { userInfo } from "node:os";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
@@ -16,6 +17,7 @@ if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath(
 
 let win: BrowserWindow | null = null;
 let usage: UsageStore | undefined; // created once the app is ready (it needs the data folder)
+let mascots: MascotStore | undefined;
 const manager = new SessionManager({
   event: (sessionId, event) => win?.webContents.send("session:event", sessionId, event),
   termData: (sessionId, chunk) => win?.webContents.send("term:data", sessionId, chunk),
@@ -78,6 +80,19 @@ ipcMain.handle("cloud:run", (_e, action: "diff" | "apply", taskId: string, cwd?:
   return manager.runUtility("codex", ["cloud", action, taskId], cols, rows, where);
 });
 ipcMain.handle("app:accounts", () => accounts());
+// Mascot packs the user adds (see mascots.ts).
+ipcMain.handle("mascots:list", () => mascots?.list() ?? []);
+ipcMain.handle("mascots:open", () => (mascots ? import("electron").then(({ shell }) => shell.openPath(mascots!.dir)) : undefined));
+ipcMain.handle("mascots:remove", (_e, id: string) => mascots?.remove(id));
+ipcMain.handle("mascots:newFolder", (_e, name: string) => mascots?.newFolder(name));
+ipcMain.handle("mascots:import", async () => {
+  const r = await dialog.showOpenDialog(win!, {
+    title: "Import a mascot: pick an SVG file, or a pack folder with mascot.svg",
+    properties: ["openFile", "openDirectory"], filters: [{ name: "Mascot", extensions: ["svg"] }],
+  });
+  const source = r.canceled ? undefined : r.filePaths[0];
+  return source && mascots ? mascots.import(source) : null;
+});
 // Refresh buttons: re-read plan limits for one agent, or all. No messages are sent.
 ipcMain.handle("usage:refresh", async (_e, agent?: AgentId) => {
   const apply = (evs: AgentEvent[]) => evs.forEach((e) => { if (e.kind === "limits") usage?.update(e.limits); });
@@ -125,6 +140,12 @@ ipcMain.handle("app:info", () => ({
 
 app.whenReady().then(() => {
   usage = new UsageStore((all) => win?.webContents.send("usage:update", all));
+  mascots = new MascotStore(join(app.getPath("userData"), "mascots"));
+  // New or edited packs (including ones Claude draws in "Make a mascot") show up by themselves.
+  let mascotTimer: NodeJS.Timeout | undefined;
+  try {
+    watch(mascots.dir, { recursive: true }, () => { clearTimeout(mascotTimer); mascotTimer = setTimeout(() => win?.webContents.send("mascots:changed"), 800); });
+  } catch { /* watching isn't available */ }
   const endpoint = claudeEndpoint();
   if (endpoint) usage.update({ agent: "claude", endpoint });
   createWindow();

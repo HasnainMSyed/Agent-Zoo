@@ -5,7 +5,8 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 import type { AgentId } from "@shared/events";
 import { PERMISSION_MODES, type AccountInfo, type UsageLimits } from "@shared/commands";
 import { AGENT_COLOR_DEFAULTS, type Settings } from "../settings";
-import { packFor } from "../mascots";
+import { packFor, type MascotPack } from "../mascots";
+import type { MascotState } from "../state";
 import { Mascot } from "./Mascot";
 import { AGENT_NAMES, LimitBars } from "./Usage";
 import { TerminalView, clearTerminalBuffer } from "./TerminalView";
@@ -54,9 +55,10 @@ function AccountTerminal({ agent, action, onDone }: { agent: AgentId; action: "l
   );
 }
 
-export function SettingsPage({ settings, onChange, user, version, usage, onClose }: {
+export function SettingsPage({ settings, onChange, user, version, usage, onClose, packs, onMakeMascot, onPacksChanged }: {
   settings: Settings; onChange: (s: Settings) => void; user: string; version: string;
   usage: Partial<Record<AgentId, UsageLimits>>; onClose: () => void;
+  packs: MascotPack[]; onMakeMascot: (description: string) => void; onPacksChanged: () => void;
 }) {
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => onChange({ ...settings, [k]: v });
   const [accts, setAccts] = useState<Record<AgentId, AccountInfo> | null>(null);
@@ -137,17 +139,7 @@ export function SettingsPage({ settings, onChange, user, version, usage, onClose
         </section>
 
         <section id="set-mascots" className="set-card">
-          <h2>Mascots</h2>
-          <Row title="Show mascots"><Toggle label="Show mascots" on={settings.showMascots} onChange={(v) => set("showMascots", v)} /></Row>
-          <div className="mascot-packs">
-            {AGENTS.map((a) => (
-              <div key={a} className="pack-card" data-skin={a}>
-                <Mascot pack={packFor(a)} state="idle" size={56} />
-                <strong>{packFor(a)?.name}</strong><span className="muted small">{AGENT_NAMES[a]}</span>
-              </div>
-            ))}
-          </div>
-          <p className="muted small">More mascot packs, and making your own, come next.</p>
+          <MascotSettings settings={settings} set={set} packs={packs} onMake={onMakeMascot} onChanged={onPacksChanged} />
         </section>
 
         <section id="set-defaults" className="set-card">
@@ -173,5 +165,69 @@ export function SettingsPage({ settings, onChange, user, version, usage, onClose
         </section>
       </div>
     </div>
+  );
+}
+
+const STATES: MascotState[] = ["idle", "thinking", "working", "waiting", "done", "error"];
+
+/** Choose a mascot per agent, preview it in every state, and add your own packs. */
+function MascotSettings({ settings, set, packs, onMake, onChanged }: {
+  settings: Settings; set: <K extends keyof Settings>(k: K, v: Settings[K]) => void; packs: MascotPack[];
+  onMake: (description: string) => void; onChanged: () => void;
+}) {
+  const [focus, setFocus] = useState<AgentId>("claude");
+  const [making, setMaking] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const chosen = packFor(focus);
+  const pick = (agent: AgentId, id: string) => set("mascots", { ...settings.mascots, [agent]: id });
+  const userPacks = packs.filter((p) => p.user);
+  const run = async (fn: () => Promise<unknown>) => { setError(""); try { await fn(); onChanged(); } catch (e) { setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(e)); } };
+  return (
+    <>
+      <h2>Mascots</h2>
+      <Row title="Show mascots"><Toggle label="Show mascots" on={settings.showMascots} onChange={(v) => set("showMascots", v)} /></Row>
+      <div className="mascot-agents seg" role="tablist" aria-label="Agent">
+        {AGENTS.map((a) => <button key={a} role="tab" aria-checked={a === focus} onClick={() => setFocus(a)}>{AGENT_NAMES[a]}</button>)}
+      </div>
+      <div className="pack-grid" role="radiogroup" aria-label={`Mascot for ${AGENT_NAMES[focus]}`}>
+        {packs.map((p) => (
+          <button key={p.id} role="radio" aria-checked={chosen?.id === p.id} className="pack-card" data-skin={focus} onClick={() => pick(focus, p.id)} title={p.description || p.name}>
+            <Mascot pack={p} state="idle" size={52} />
+            <strong>{p.name}</strong>
+            <span className="muted tiny">{p.user ? "Yours" : p.agent ? `Made for ${AGENT_NAMES[p.agent]}` : "Built in"}</span>
+          </button>
+        ))}
+      </div>
+      {chosen && (
+        <div className="pack-preview" data-skin={focus}>
+          {STATES.map((st) => <div key={st} className="pp-state"><Mascot pack={chosen} state={st} size={48} /><span className="muted tiny">{st}</span></div>)}
+        </div>
+      )}
+      <div className="pack-actions">
+        {making === null
+          ? <button className="btn-small primary" onClick={() => setMaking("")}>✦ Make a mascot…</button>
+          : (
+            <form className="make-form" onSubmit={(e) => { e.preventDefault(); if (making.trim()) { onMake(making.trim()); setMaking(null); } }}>
+              <input className="text-input" autoFocus value={making} onChange={(e) => setMaking(e.target.value)} placeholder="Describe it, e.g. a sleepy pixel cat with a tiny wizard hat" />
+              <button className="btn-small primary" type="submit">Make it with Claude</button>
+              <button className="btn-small" type="button" onClick={() => setMaking(null)}>Cancel</button>
+            </form>
+          )}
+        <button className="btn-small" onClick={() => run(() => window.agents.mascots.import())}>Import…</button>
+        <button className="btn-small" onClick={() => window.agents.mascots.open()}>Open packs folder</button>
+      </div>
+      {error && <p className="panel-error" role="alert">{error}</p>}
+      {userPacks.length > 0 && (
+        <div className="user-packs">
+          <span className="muted small">Your packs</span>
+          {userPacks.map((p) => (
+            <span key={p.id} className="user-pack">{p.name}
+              <button aria-label={`Remove ${p.name}`} title="Remove this pack" onClick={() => { if (window.confirm(`Remove the mascot pack “${p.name}”? This deletes its folder.`)) run(() => window.agents.mascots.remove(p.id)); }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="muted small">“Make a mascot” opens a Claude session in a new pack folder; the mascot appears here when Claude finishes. Packs are an SVG plus a small JSON file; the app animates them.</p>
+    </>
   );
 }

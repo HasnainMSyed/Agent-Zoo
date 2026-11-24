@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentId, PermissionOption, SessionCommand } from "@shared/events";
 import { apply, newSession, type Session } from "./state";
 import type React from "react";
-import { packFor } from "./mascots";
+import { allPacks, packFor, setChosenMascots, setUserPacks, type MascotPack } from "./mascots";
+import { makeMascotPrompt } from "./mascots/make-prompt";
 import { Mascot, mascotLabel } from "./components/Mascot";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
@@ -76,6 +77,13 @@ export function App() {
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
   const setSettings = (s: Settings) => { setSettingsState(s); saveSettings(s); };
   useEffect(() => { applySettings(settings); }, [settings]);
+  // Mascot packs: the user's own (from the app's data folder) plus the choice per agent.
+  const [packs, setPacks] = useState<MascotPack[]>(allPacks);
+  const loadPacks = useCallback(() => {
+    window.agents.mascots.list().then((raw) => { setUserPacks(raw as MascotPack[]); setPacks(allPacks()); }).catch(() => {});
+  }, []);
+  useEffect(() => { loadPacks(); return window.agents.mascots.onChanged(loadPacks); }, [loadPacks]);
+  setChosenMascots(settings.mascots);
   const [showSettings, setShowSettings] = useState(false);
   const [user, setUser] = useState("");
   const [appVersion, setAppVersion] = useState("");
@@ -244,7 +252,12 @@ export function App() {
 
       <main className="main" ref={mainRef}>
         {showSettings ? (
-          <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)} />
+          <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)}
+            packs={packs} onPacksChanged={loadPacks}
+            onMakeMascot={async (description) => {
+              const folder = await window.agents.mascots.newFolder(description.split(/\s+/).slice(0, 4).join(" "));
+              start("claude", { cwd: folder, prompt: makeMascotPrompt(description, folder) });
+            }} />
         ) : <>
         {active && (
           <header className="topbar">

@@ -10,6 +10,7 @@ export interface Settings {
   textSize: "small" | "default" | "large";
   reduceMotion: boolean;
   showMascots: boolean;
+  mascots: Partial<Record<AgentId, string>>; // chosen pack id per agent (built-in or "user:<folder>")
   defaultAgent: "last" | AgentId;
   claudeMode: string;                  // permission mode new Claude sessions start in
 }
@@ -18,7 +19,7 @@ export const AGENT_COLOR_DEFAULTS: Record<AgentId, string> = { claude: "#e07b55"
 
 export const DEFAULT_SETTINGS: Settings = {
   displayName: "", theme: "system", skin: "agent", agentColors: AGENT_COLOR_DEFAULTS,
-  textSize: "default", reduceMotion: false, showMascots: true, defaultAgent: "last", claudeMode: "default",
+  textSize: "default", reduceMotion: false, showMascots: true, mascots: {}, defaultAgent: "last", claudeMode: "default",
 };
 
 const KEY = "zoo.settings";

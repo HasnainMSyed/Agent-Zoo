@@ -10,6 +10,18 @@ const api = {
     ipcRenderer.on("sessions:changed", listener);
     return () => { ipcRenderer.removeListener("sessions:changed", listener); };
   },
+  mascots: {
+    list: (): Promise<{ id: string; name: string; agent?: string; description: string; svg: string; user: true }[]> => ipcRenderer.invoke("mascots:list"),
+    import: (): Promise<string | null> => ipcRenderer.invoke("mascots:import"),
+    open: (): Promise<void> => ipcRenderer.invoke("mascots:open"),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke("mascots:remove", id),
+    newFolder: (name: string): Promise<string> => ipcRenderer.invoke("mascots:newFolder", name),
+    onChanged(cb: () => void) {
+      const listener = () => cb();
+      ipcRenderer.on("mascots:changed", listener);
+      return () => { ipcRenderer.removeListener("mascots:changed", listener); };
+    },
+  },
   accounts: (): Promise<Record<AgentId, AccountInfo>> => ipcRenderer.invoke("app:accounts"),
   /** Runs an agent's own sign-in or sign-out in a small terminal; returns its terminal id. */
   accountRun: (agent: AgentId, action: "login" | "logout", cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("account:run", agent, action, cols, rows),
