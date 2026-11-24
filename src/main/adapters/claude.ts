@@ -25,6 +25,20 @@ export const CLAUDE_ARGS = [
   "--include-partial-messages", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
 ];
 
+/** Plan limits from a short-lived Claude process when no session is open. Sends no message. */
+export function claudeUsageOnce(cwd: string, bin = "claude"): Promise<Record<string, any> | undefined> {
+  return new Promise((resolve) => {
+    const proc = spawn(bin, ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "ignore"] });
+    const done = (r?: Record<string, any>) => { clearTimeout(timer); resolve(r); proc.stdin.end(); setTimeout(() => proc.kill("SIGTERM"), 300).unref(); };
+    const timer = setTimeout(() => done(), 20_000);
+    proc.on("error", () => done());
+    createInterface({ input: proc.stdout }).on("line", (line) => {
+      try { const m = JSON.parse(line); if (m.type === "control_response" && m.response?.request_id === "usage") done(m.response.response); } catch { /* noise */ }
+    });
+    proc.stdin.write(JSON.stringify(controlRequest("usage", "get_usage")) + "\n");
+  });
+}
+
 export class ClaudeSession implements AgentSession {
   private proc: ChildProcessWithoutNullStreams;
   private mapper = new ClaudeMapper();

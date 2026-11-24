@@ -102,6 +102,17 @@ export async function rpcSession(cmd: string, args: string[], jsonrpc: boolean, 
   finally { clearTimeout(timer); proc.stdin.end(); setTimeout(() => proc.kill("SIGTERM"), 300).unref(); }
 }
 
+/** Codex plan limits and plan, on request (the Refresh buttons). */
+export async function codexLimitsNow(onLimits: (e: AgentEvent[]) => void): Promise<void> {
+  await rpcSession("codex", ["app-server"], false, async (rpc, notify) => {
+    await rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Agent Zoo", version: "0.1.0" }, capabilities: null });
+    notify("initialized");
+    const [limits, account] = await Promise.all([rpc("account/rateLimits/read", {}).catch(() => undefined), rpc("account/read", {}).catch(() => undefined)]);
+    if (limits) onLimits(codexLimits(limits.rateLimits ?? limits));
+    if (account) onLimits(codexAccount({ authMode: account.account?.type ?? account.authMode, planType: account.account?.planType ?? account.planType }));
+  });
+}
+
 async function codexSessions(onLimits: (e: AgentEvent[]) => void): Promise<PastSession[]> {
   const out: PastSession[] = [];
   await rpcSession("codex", ["app-server"], false, async (rpc, notify) => {

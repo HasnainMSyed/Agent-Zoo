@@ -3,7 +3,7 @@ import type { AgentId } from "@shared/events";
 import type { PastSession, UsageLimits } from "@shared/commands";
 import { packFor } from "../mascots";
 import { Mascot } from "./Mascot";
-import { AGENT_NAMES, LimitBars, timeAgo } from "./Usage";
+import { AGENT_NAMES, LimitBars, RefreshUsage, timeAgo } from "./Usage";
 
 const AGENTS: AgentId[] = ["claude", "codex", "grok"];
 
@@ -129,6 +129,7 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
         </div></div></div>
       </section>
 
+      <div className="usage-row-head"><span className="home-label">Plan usage</span><RefreshUsage /></div>
       <section className="usage-row" aria-label="Plan usage">
         {AGENTS.map((a) => (
           <div key={a} className="usage-cell" data-skin={a}>

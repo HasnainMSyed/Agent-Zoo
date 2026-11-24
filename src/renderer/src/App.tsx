@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentId, PermissionOption, SessionCommand } from "@shared/events";
+import type { AgentEvent, AgentId, PermissionOption, SessionCommand } from "@shared/events";
 import { apply, newSession, type Session } from "./state";
 import type React from "react";
 import { packFor } from "./mascots";
@@ -77,6 +77,16 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [user, setUser] = useState("");
   const [appVersion, setAppVersion] = useState("");
+  // The input box floats over the chat; the chat leaves room under its last message for it.
+  const mainRef = useRef<HTMLElement>(null);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const dock = dockRef.current, main = mainRef.current;
+    if (!dock || !main) return;
+    const ro = new ResizeObserver(() => main.style.setProperty("--dock-h", `${dock.offsetHeight}px`));
+    ro.observe(dock);
+    return () => ro.disconnect();
+  });
   const [panel, setPanel] = useState<{ sessionId: string; kind: PanelKind } | null>(null);
   const [lastAgent, setLastAgent] = usePersisted<AgentId>("zoo.lastAgent", "claude");
   const refreshPast = useCallback((fresh = false) => {
@@ -102,7 +112,15 @@ export function App() {
   const autoPrompt = useRef<string | null>(null);
   const autoType = useRef<string | null>(null);
   useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setHome(i.home); setUser(i.user); setAppVersion(i.version); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; autoType.current = i.autoType; }); }, []);
+  // Events can arrive before the session is added here (Claude sends a reopened conversation's
+  // history right away), so events for an unknown session wait until it appears.
+  const early = useRef(new Map<string, AgentEvent[]>());
   useEffect(() => window.agents.onEvent((id, e) => {
+    if (!sessionsRef.current[id] && !id.startsWith("util-")) {
+      const list = early.current.get(id) ?? [];
+      list.push(e);
+      early.current.set(id, list);
+    }
     setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, e) } : prev));
   }), []);
 
@@ -111,7 +129,9 @@ export function App() {
     try {
       const info = await window.agents.createSession(agent, opts.cwd ?? cwd, opts.resumeId, agent === "claude" ? settings.claudeMode : undefined, opts.cloud);
       if (opts.cloud) setTimeout(() => window.agents.setView(info.id, "terminal").catch(() => {}), 50);
-      setSessions((prev) => ({ ...prev, [info.id]: newSession(info) }));
+      const waiting = early.current.get(info.id) ?? [];
+      early.current.delete(info.id);
+      setSessions((prev) => ({ ...prev, [info.id]: waiting.reduce(apply, newSession(info)) }));
       setActiveId(info.id);
       setShowSettings(false);
       setLastAgent(agent);
@@ -216,7 +236,7 @@ export function App() {
         </aside>
       )}
 
-      <main className="main">
+      <main className="main" ref={mainRef}>
         {showSettings ? (
           <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)} />
         ) : <>
@@ -240,6 +260,7 @@ export function App() {
         {active?.view === "terminal" ? <TerminalView key={active.info.id} sessionId={active.info.id} /> : <>
         {active ? <Transcript items={active.items} onDecide={decide} empty={empty} /> : <div className="home-scroll">{empty}</div>}
         {active && (
+          <div className="composer-dock" ref={dockRef}>
           <Composer running={active.running} disabled={active.exited} onSend={send} onStop={stop}
             commands={active.commands} models={active.models} model={active.model} effort={active.effort}
             onCommand={(cmd, args) => {
@@ -257,6 +278,7 @@ export function App() {
             onMode={() => setPanel(panel?.kind === "mode" && panel.sessionId === active.info.id ? null : { sessionId: active.info.id, kind: "mode" })}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />
+          </div>
         )}
         </>}
         </>}

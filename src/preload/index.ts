@@ -15,6 +15,8 @@ const api = {
   accountRun: (agent: AgentId, action: "login" | "logout", cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("account:run", agent, action, cols, rows),
   accountClose: (id: string): Promise<void> => ipcRenderer.invoke("account:close", id),
   usage: (): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:get"),
+  /** Re-reads plan limits (one agent, or all when omitted). */
+  refreshUsage: (agent?: AgentId): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:refresh", agent),
   pastSessions: (fresh?: boolean): Promise<PastSession[]> => ipcRenderer.invoke("sessions:past", fresh),
   onUsage(cb: (all: Partial<Record<AgentId, UsageLimits>>) => void) {
     const listener = (_: unknown, all: Partial<Record<AgentId, UsageLimits>>) => cb(all);

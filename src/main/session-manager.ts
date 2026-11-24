@@ -234,6 +234,12 @@ export class SessionManager {
     return result;
   }
 
+  /** Asks any open Chat-view Claude session (used to refresh plan limits without starting a new one). */
+  claudeQuery(subtype: string): Promise<unknown> | undefined {
+    for (const s of this.sessions.values()) if (s.info.agent === "claude" && s.agent?.query) return s.agent.query(subtype);
+    return undefined;
+  }
+
   close(id: string) {
     const s = this.sessions.get(id);
     if (!s) return;

@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
-import type { AgentId, SessionCommand } from "@shared/events";
+import type { AgentEvent, AgentId, SessionCommand } from "@shared/events";
 import { SessionManager } from "./session-manager";
 import { UsageStore } from "./usage-store";
-import { pastSessions, watchClaudeSessions } from "./history-index";
+import { codexLimitsNow, pastSessions, watchClaudeSessions } from "./history-index";
+import { claudeUsageOnce } from "./adapters/claude";
+import { claudeUsageLimits } from "./adapters/claude-mapper";
 import { accounts, ACCOUNT_COMMANDS } from "./accounts";
 import { grokUsage } from "./grok-usage";
 import { userInfo } from "node:os";
@@ -52,7 +54,12 @@ function createWindow() {
       setTimeout(async () => {
         // AGENTS_GUI_SCREENSHOT_JS: optional script run in the page first (e.g. to type into the input box).
         const js = process.env.AGENTS_GUI_SCREENSHOT_JS;
-        if (js) { await win!.webContents.executeJavaScript(js).catch(() => {}); await new Promise((r) => setTimeout(r, 600)); }
+        if (js) {
+          const result = await win!.webContents.executeJavaScript(js).catch((e) => `error: ${e}`);
+          // AGENTS_GUI_SCREENSHOT_OUT: where to save what the script returned (for layout checks).
+          if (process.env.AGENTS_GUI_SCREENSHOT_OUT) writeFileSync(process.env.AGENTS_GUI_SCREENSHOT_OUT, JSON.stringify(result, null, 1));
+          await new Promise((r) => setTimeout(r, 600));
+        }
         const img = await win!.webContents.capturePage();
         writeFileSync(shot, img.toPNG());
         app.quit();
@@ -71,6 +78,18 @@ ipcMain.handle("cloud:run", (_e, action: "diff" | "apply", taskId: string, cwd?:
   return manager.runUtility("codex", ["cloud", action, taskId], cols, rows, where);
 });
 ipcMain.handle("app:accounts", () => accounts());
+// Refresh buttons: re-read plan limits for one agent, or all. No messages are sent.
+ipcMain.handle("usage:refresh", async (_e, agent?: AgentId) => {
+  const apply = (evs: AgentEvent[]) => evs.forEach((e) => { if (e.kind === "limits") usage?.update(e.limits); });
+  const jobs: Promise<unknown>[] = [];
+  if (!agent || agent === "claude") {
+    jobs.push((manager.claudeQuery("get_usage") ?? claudeUsageOnce(app.getPath("home"))).then((r) => apply(claudeUsageLimits(r as Record<string, any>))).catch(() => {}));
+  }
+  if (!agent || agent === "codex") jobs.push(codexLimitsNow(apply).catch(() => {}));
+  if (!agent || agent === "grok") jobs.push(grokUsage(app.getPath("userData")).then((l) => { if (l) usage?.update(l); }).catch(() => {}));
+  await Promise.all(jobs);
+  return usage?.all() ?? {};
+});
 ipcMain.handle("account:run", (_e, agent: AgentId, action: "login" | "logout", cols?: number, rows?: number) => {
   const cmd = ACCOUNT_COMMANDS[agent]?.[action];
   if (!cmd) throw new Error("Unknown account action.");
