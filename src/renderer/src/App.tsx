@@ -5,6 +5,7 @@ import { packFor } from "./mascots";
 import { Mascot, mascotLabel } from "./components/Mascot";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
+import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
 
@@ -31,7 +32,10 @@ export function App() {
   sessionsRef.current = sessions;
 
   const [autoStart, setAutoStart] = useState<AgentId | null>(null);
-  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setAutoStart(i.autoStart); }); }, []);
+  // Screenshot automation only: optionally send one prompt, then open the Terminal view.
+  const autoView = useRef<"terminal" | null>(null);
+  const autoPrompt = useRef<string | null>(null);
+  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; }); }, []);
   useEffect(() => window.agents.onEvent((id, e) => {
     setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, e) } : prev));
   }), []);
@@ -42,18 +46,35 @@ export function App() {
       const info = await window.agents.createSession(agent, cwd);
       setSessions((prev) => ({ ...prev, [info.id]: newSession(info) }));
       setActiveId(info.id);
+      const prompt = autoPrompt.current;
+      if (prompt) { autoPrompt.current = null; setTimeout(() => window.agents.command(info.id, { kind: "send", text: prompt }), 800); }
+      else if (autoView.current) { autoView.current = null; setTimeout(() => window.agents.setView(info.id, "terminal"), 1500); }
     } catch (err) { setStartError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err)); }
   }, [cwd]);
 
   useEffect(() => { if (autoStart && cwd) { const a = autoStart; setAutoStart(null); start(a); } }, [autoStart, cwd, start]);
 
   const active = activeId ? sessions[activeId] : undefined;
+  useEffect(() => {
+    if (autoView.current && active && !autoPrompt.current && active.items.some((i) => i.type === "turn")) {
+      autoView.current = null;
+      window.agents.setView(active.info.id, "terminal");
+    }
+  }, [active]);
   const agent: AgentId = active?.info.agent ?? "claude";
   const pack = packFor(agent);
 
   const decide = (permId: string, d: PermissionOption["id"]) => { if (activeId) window.agents.command(activeId, { kind: "permission", id: permId, decision: d }); };
   const send = (text: string) => { if (activeId) window.agents.command(activeId, { kind: "send", text }); };
   const stop = () => { if (activeId) window.agents.command(activeId, { kind: "interrupt" }); };
+  const switchView = async (id: string, view: "gui" | "terminal") => {
+    if (view === "gui") clearTerminalBuffer(id);
+    try { await window.agents.setView(id, view); }
+    catch (err) {
+      const message = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err);
+      setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, { kind: "error", message }) } : prev));
+    }
+  };
   const closeSession = (id: string) => {
     window.agents.closeSession(id);
     setSessions((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -109,18 +130,27 @@ export function App() {
           <header className="topbar">
             <div className="title"><strong>{active.info.title}</strong><span className="muted">{active.info.cwd}</span></div>
             <div className="chips">
+              <div className="view-toggle" role="tablist" aria-label="View">
+                {(["gui", "terminal"] as const).map((v) => (
+                  <button key={v} role="tab" aria-selected={active.view === v} disabled={active.view !== v && active.running}
+                    title={active.running && active.view !== v ? "Wait for the agent to finish, or stop it, before switching" : v === "terminal" ? "Open this conversation in the agent's own terminal interface" : "Back to the chat view"}
+                    onClick={() => switchView(active.info.id, v)}>{v === "gui" ? "Chat" : "Terminal"}</button>
+                ))}
+              </div>
               {active.model && <span className="chip">{active.model}</span>}
               <ContextRing used={active.usage?.contextUsed} total={active.usage?.contextWindow} />
               {active.usage?.costUsd !== undefined && <span className="chip">${active.usage.costUsd.toFixed(2)}</span>}
             </div>
           </header>
         )}
+        {active?.view === "terminal" ? <TerminalView key={active.info.id} sessionId={active.info.id} /> : <>
         <Transcript items={active?.items ?? []} onDecide={decide} empty={empty} />
         {active && (
           <Composer running={active.running} disabled={active.exited} onSend={send} onStop={stop}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />
         )}
+        </>}
       </main>
 
       {active && (

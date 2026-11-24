@@ -1,5 +1,6 @@
 // Drives a live `codex app-server` over JSON-RPC on stdio (docs/PROTOCOLS.md).
 
+import { agentEnv } from "../env";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
@@ -18,8 +19,9 @@ export class CodexSession implements AgentSession {
   private stderr = "";
   private closing = false;
 
-  constructor(private cwd: string, private emit: (e: AgentEvent) => void, bin = "codex") {
-    this.proc = spawn(bin, ["app-server"], { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
+  /** `resume`: a thread id to continue, "latest" for the newest thread in this folder, or nothing for a new thread. */
+  constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "codex") {
+    this.proc = spawn(bin, ["app-server"], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
     this.proc.on("error", (err) => this.emit({ kind: "error", message: `Couldn't start Codex: ${err.message}. Check that \`codex\` is on your PATH.` }));
     this.proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
     this.proc.on("exit", (code) => {
@@ -67,8 +69,21 @@ export class CodexSession implements AgentSession {
     const models = await this.rpc("model/list", {});
     const list: Json[] = models.data ?? models.models ?? [];
     const model = list.find((m) => m.isDefault)?.id ?? list[0]?.id;
-    const started = await this.rpc("thread/start", { cwd: this.cwd, ...(model ? { model } : {}) });
-    return started.thread.id as string;
+    const withModel = model ? { model } : {};
+    let threadId = this.resume;
+    if (threadId === "latest") {
+      const recent = await this.rpc("thread/list", { cwd: this.cwd, limit: 1 });
+      threadId = recent.data?.[0]?.id;
+    }
+    // thread/resume replays thread/started, so the UI learns the id and model either way.
+    const res = threadId
+      ? await this.rpc("thread/resume", { threadId, ...withModel })
+      : await this.rpc("thread/start", { cwd: this.cwd, ...withModel });
+    if (threadId && !this.mapper.threadId) {
+      this.mapper.threadId = res.thread.id;
+      this.emit({ kind: "session.started", agent: "codex", sessionId: res.thread.id, model: res.model ?? res.thread.model, cwd: this.cwd });
+    }
+    return res.thread.id as string;
   }
 
   send(text: string) {

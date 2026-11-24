@@ -38,6 +38,8 @@ export type AgentEvent =
   | { kind: "turn.started" }
   | { kind: "turn.done"; ok: boolean; durationMs?: number; error?: string }
   | { kind: "error"; message: string }
+  | { kind: "view"; view: "gui" | "terminal" }
+  | { kind: "notice"; text: string }
   | { kind: "exited"; code: number | null };
 
 /** Commands the UI sends to an agent session. */

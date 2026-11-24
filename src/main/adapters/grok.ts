@@ -1,5 +1,6 @@
 // Drives a live `grok agent stdio` session over ACP (JSON-RPC 2.0 on stdio, docs/PROTOCOLS.md).
 
+import { agentEnv } from "../env";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
@@ -18,9 +19,10 @@ export class GrokSession implements AgentSession {
   private stderr = "";
   private closing = false;
 
-  constructor(private cwd: string, private emit: (e: AgentEvent) => void, bin = "grok") {
+  /** `resume`: a session id to continue, "latest" for the newest session in this folder, or nothing for a new one. */
+  constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "grok") {
     this.mapper = new GrokMapper(cwd);
-    this.proc = spawn(bin, ["agent", "stdio"], { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
+    this.proc = spawn(bin, ["agent", "stdio"], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
     this.proc.on("error", (err) => this.emit({ kind: "error", message: `Couldn't start Grok: ${err.message}. Check that \`grok\` is on your PATH.` }));
     this.proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
     this.proc.on("exit", (code) => {
@@ -64,8 +66,18 @@ export class GrokSession implements AgentSession {
   private async handshake(): Promise<string> {
     // No fs or terminal capabilities: Grok uses its own tools and asks us only for approvals.
     await this.rpc("initialize", { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } });
-    const res = await this.rpc("session/new", { cwd: this.cwd, mcpServers: [] });
-    const sessionId = String(res.sessionId);
+    let sessionId = this.resume;
+    if (sessionId === "latest") {
+      const listed = await this.rpc("session/list", { cwd: this.cwd });
+      const sessions: Json[] = listed.sessions ?? [];
+      sessionId = sessions.sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")))[0]?.sessionId;
+    }
+    if (sessionId) {
+      // session/resume continues without replaying history (session/load would replay it all).
+      await this.rpc("session/resume", { sessionId, cwd: this.cwd, mcpServers: [] });
+    } else {
+      sessionId = String((await this.rpc("session/new", { cwd: this.cwd, mcpServers: [] })).sessionId);
+    }
     for (const e of this.mapper.ready(sessionId)) this.emit(e);
     return sessionId;
   }

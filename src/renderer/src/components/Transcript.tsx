@@ -27,6 +27,7 @@ export function Items({ items, onDecide }: { items: Item[]; onDecide: (id: strin
       case "permission": return <ApprovalCard key={it.id} item={it} onDecide={(d) => onDecide(it.id, d)} />;
       case "turn": return <div key={it.id} className={`turn-end ${it.ok ? "" : "failed"}`}>{it.ok ? "Turn finished" : `Turn failed${it.error ? `: ${it.error}` : ""}`}{it.durationMs ? ` · ${fmtSecs(it.durationMs)}` : ""}</div>;
       case "error": return <div key={it.id} className="error-banner" role="alert">{it.message}</div>;
+      case "notice": return <div key={it.id} className="notice">{it.text}</div>;
     }
   });
   return <>{render(items)}</>;

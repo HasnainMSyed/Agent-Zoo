@@ -11,7 +11,8 @@ export type Item =
   | { type: "tool"; id: string; tool: ToolKind; name: string; title: string; input: Record<string, unknown>; result?: ToolResult; ok?: boolean; children: Item[]; approval?: PermissionOption["id"]; live?: string }
   | { type: "permission"; id: string; toolId?: string; tool: ToolKind; name: string; title: string; reason?: string; input: Record<string, unknown>; options: PermissionOption[]; decision?: PermissionOption["id"]; diff?: DiffHunk[] }
   | { type: "turn"; id: string; ok: boolean; durationMs?: number; error?: string }
-  | { type: "error"; id: string; message: string };
+  | { type: "error"; id: string; message: string }
+  | { type: "notice"; id: string; text: string };
 
 export interface Session {
   info: SessionInfo;
@@ -23,9 +24,10 @@ export interface Session {
   usage?: Extract<AgentEvent, { kind: "usage" }>;
   hooks: number;
   exited: boolean;
+  view: "gui" | "terminal";
 }
 
-export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false });
+export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui" });
 
 /** Finds the list an item belongs in: top level, or inside its parent subagent card. */
 function container(items: Item[], parentToolId?: string): Item[] {
@@ -116,5 +118,11 @@ export function apply(s: Session, e: AgentEvent): Session {
       return { ...s, items, status: "error" };
     case "exited":
       return { ...s, exited: true, running: false, status: e.code ? "error" : s.status };
+    case "view":
+      // A fresh process takes over in either direction, so the old one's end state is cleared.
+      return { ...s, view: e.view, exited: false, running: false, status: "idle" };
+    case "notice":
+      items.push({ type: "notice", id: `notice-${++turnSeq}`, text: e.text });
+      return { ...s, items };
   }
 }

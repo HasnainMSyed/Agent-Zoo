@@ -1,5 +1,6 @@
 // Drives a live `claude` process in two-way stream-json mode (docs/PROTOCOLS.md).
 
+import { agentEnv } from "../env";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
@@ -24,8 +25,10 @@ export class ClaudeSession implements AgentSession {
   private stderr = "";
   private closing = false;
 
-  constructor(cwd: string, private emit: (e: AgentEvent) => void, bin = "claude") {
-    this.proc = spawn(bin, CLAUDE_ARGS, { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] });
+  /** `sessionId` is chosen by the app so the Terminal view can always resume the same conversation. */
+  constructor(cwd: string, private emit: (e: AgentEvent) => void, opts: { sessionId: string; resume: boolean }, bin = "claude") {
+    const idArgs = opts.resume ? ["--resume", opts.sessionId] : ["--session-id", opts.sessionId];
+    this.proc = spawn(bin, [...CLAUDE_ARGS, ...idArgs], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
     this.proc.on("error", (err) => this.emit({ kind: "error", message: `Couldn't start Claude Code: ${err.message}. Check that \`claude\` is on your PATH.` }));
     this.proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
     this.proc.on("exit", (code) => {
