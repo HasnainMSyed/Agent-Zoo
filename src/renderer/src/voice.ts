@@ -1,33 +1,79 @@
-// Voice input, one entry per agent. Each agent's voice is its own provider's: Agent Zoo never
+// Voice input, one entry per agent. Each agent's voice is its own provider's: Prompt Habitat never
 // records audio for one agent and sends it to another company's service.
 //
-// Two kinds:
-//  - "terminal": the agent's own voice mode lives in its terminal interface. The mic button opens
-//    the session's Terminal view (the same conversation), where you talk to it; Chat brings you back.
-//  - "dictate": words go straight into the input box. start() begins listening and reports text as
-//    it's recognised (final: false for a running guess, true for finished words); the function it
-//    returns stops listening. The Composer handles the button, the listening state and the text.
-//
-// To add an agent's voice, add an entry to VOICE below. Nothing else needs to change.
-
 import type { AgentId } from "@shared/events";
 
-export interface DictateHandlers { onText: (text: string, final: boolean) => void; onError: (message: string) => void }
+interface DictationHandlers {
+  onRecording: (stop: () => void) => void;
+  onTranscribing: () => void;
+}
 
-export type VoiceProvider =
-  | { kind: "terminal"; title: string; hint: string; /** Typed into the terminal when it opens, e.g. to switch voice mode on. */ typeOnOpen?: () => Promise<string | undefined> }
-  | { kind: "dictate"; title: string; start: (sessionId: string, h: DictateHandlers) => Promise<() => void> };
+export interface AgentVoice {
+  terminal: { title: string; hint: string; typeOnOpen?: () => Promise<string | undefined> };
+  dictate?: (signal: AbortSignal, handlers: DictationHandlers) => Promise<string>;
+}
 
-export const VOICE: Partial<Record<AgentId, VoiceProvider>> = {
+async function dictateCodex(signal: AbortSignal, handlers: DictationHandlers): Promise<string> {
+  await window.agents.codexDictationReady();
+  signal.throwIfAborted();
+  if (!navigator.mediaDevices?.getUserMedia || !globalThis.MediaRecorder?.isTypeSupported("audio/webm;codecs=opus")) {
+    throw new Error("Microphone recording is unavailable in this app window.");
+  }
+
+  let stream: MediaStream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { throw new Error("Couldn't access the microphone. Check your microphone and system permissions."); }
+
+  let recording: Blob;
+  try {
+    signal.throwIfAborted();
+    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    const chunks: Blob[] = [];
+    const stop = () => { if (recorder.state !== "inactive") recorder.stop(); };
+
+    recorder.start();
+    const timer = setTimeout(stop, 60_000);
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+      recording = await new Promise<Blob>((resolve, reject) => {
+        recorder.ondataavailable = ({ data }) => { if (data.size) chunks.push(data); };
+        recorder.onstop = () => resolve(new Blob(chunks, { type: "audio/webm" }));
+        recorder.onerror = () => reject(new Error("The microphone stopped recording. Try again."));
+        handlers.onRecording(stop);
+      });
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", stop);
+      stop();
+    }
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+
+  signal.throwIfAborted();
+  handlers.onTranscribing();
+  const audio = await recording.arrayBuffer();
+  signal.throwIfAborted();
+  return window.agents.transcribeCodexAudio(audio);
+}
+
+export const VOICE: Partial<Record<AgentId, AgentVoice>> = {
   // Claude Code's voice is its /voice mode (hold Space to talk), with Claude's own speech service and
   // sign-in. Its chat-side equivalent (the stream-json "dictate" request) is reserved for Anthropic's
   // VS Code extension, so Claude's voice opens in the Terminal view.
   claude: {
-    kind: "terminal",
-    title: "Talk to Claude (opens Claude's voice mode in the Terminal view)",
-    hint: "Hold Space to talk to Claude, and let go to finish. Chat brings you back to this view.",
-    // Voice mode is a setting in Claude Code; "/voice" switches it on when it's off.
-    typeOnOpen: async () => ((await window.agents.claudeVoiceOn()) ? undefined : "/voice\r"),
+    terminal: {
+      title: "Talk to Claude (opens Claude's voice mode in the Terminal view)",
+      hint: "Hold Space to talk to Claude, and let go to finish. Chat brings you back to this view.",
+      // Voice mode is a setting in Claude Code; "/voice" switches it on when it's off.
+      typeOnOpen: async () => ((await window.agents.claudeVoiceOn()) ? undefined : "/voice\r"),
+    },
   },
-  // codex: …, grok: … — added by their own voice work.
+  codex: {
+    terminal: {
+      title: "Open a live voice conversation in the Terminal tab",
+      hint: "In a supported Codex session, enter /voice to start talking and /voice stop to finish. Select Chat to return.",
+    },
+    dictate: dictateCodex,
+  },
 };

@@ -12,6 +12,7 @@ import { ClaudeSession, type AgentSession } from "./adapters/claude";
 import { claudeHistory } from "./adapters/claude-mapper";
 import { ReplaySession } from "./adapters/replay";
 import { CodexSession } from "./adapters/codex";
+import { CODEX_ACCESS } from "./adapters/codex-mapper";
 import { GrokSession } from "./adapters/grok";
 import { TerminalSession } from "./terminal";
 import { AGENT_QUERIES } from "@shared/commands";
@@ -37,6 +38,7 @@ interface Entry {
   model?: string;  // chosen in the picker; Claude and Grok apply it by restarting on the same conversation
   effort?: string;
   permissionMode?: string; // Claude's, kept so a restart or the Terminal view keeps the same mode
+  codexAccessOverride?: string;
   pendingType?: () => void; // types a queued command once the terminal interface first draws
 }
 
@@ -99,6 +101,10 @@ export class SessionManager {
     const resume = entry.nativeId && entry.hadTurn ? entry.nativeId : entry.usedTerminal ? "latest" : undefined;
     entry.agent = agent === "codex" ? new CodexSession(cwd, emit, resume) : new GrokSession(cwd, emit, resume, { model, effort });
     if (agent === "codex" && (model || effort)) entry.agent.setModel?.(model, effort);
+    if (entry.agent instanceof CodexSession && entry.codexAccessOverride) {
+      entry.agent.setAccess(entry.codexAccessOverride);
+      emit({ kind: "mode", mode: entry.codexAccessOverride });
+    }
   }
 
   private setModel(entry: Entry, model?: string, effort?: string) {
@@ -127,6 +133,12 @@ export class SessionManager {
     const known = id && entry.hadTurn;
     if (agent === "codex") {
       const flags = [...(model ? ["-m", model] : []), ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : [])];
+      if (entry.codexAccessOverride) {
+        const access = CODEX_ACCESS[entry.codexAccessOverride]!;
+        const sandbox = entry.codexAccessOverride === "auto" ? "workspace-write" : entry.codexAccessOverride === "full" ? "danger-full-access" : "read-only";
+        flags.push("--sandbox", sandbox, "--ask-for-approval", access.approvalPolicy);
+        if (sandbox === "workspace-write") flags.push("-c", "sandbox_workspace_write.network_access=false", "-c", "sandbox_workspace_write.writable_roots=[]", "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=false", "-c", "sandbox_workspace_write.exclude_slash_tmp=false");
+      }
       // --no-daemon: the terminal must own the conversation and release it on exit; the shared
       // background server would keep holding it and block the Chat view from resuming.
       return ["codex", known ? ["resume", "--no-daemon", ...flags, id] : ["--no-daemon", ...flags]];
@@ -150,6 +162,18 @@ export class SessionManager {
     };
     entry.pendingType = () => setTimeout(send, 1200);
     setTimeout(send, 6000); // fallback if the interface stays quiet
+  }
+
+  async openCodexVoice(id: string) {
+    const entry = this.sessions.get(id);
+    const agent = entry?.agent;
+    if (!entry || !(agent instanceof CodexSession) || entry.view !== "gui") throw new Error("Open a Codex Chat session to start live voice.");
+    if (entry.running) throw new Error("Wait for Codex to finish, or stop it, to talk.");
+    const threadId = await agent.prepareVoiceThread();
+    if (this.sessions.get(id) !== entry || entry.agent !== agent || entry.running) throw new Error("The Codex session changed. Try opening live voice again.");
+    entry.nativeId = threadId;
+    entry.hadTurn = true;
+    this.setView(id, "terminal");
   }
 
   setView(id: string, view: View, cols = 100, rows = 30, typeOnOpen?: string) {
@@ -247,6 +271,7 @@ export class SessionManager {
     if (subtype === "set_permission_mode" && gen === s.gen) {
       const mode = String((result as { mode?: string })?.mode ?? payload.mode);
       s.permissionMode = mode;
+      if (s.info.agent === "codex") s.codexAccessOverride = mode;
       this.sink.event(id, { kind: "mode", mode });
     }
     return result;

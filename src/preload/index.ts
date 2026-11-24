@@ -39,6 +39,9 @@ const api = {
   },
   /** Whether Claude Code's voice mode (/voice) is switched on in its settings. */
   claudeVoiceOn: (): Promise<boolean> => ipcRenderer.invoke("claude:voiceOn"),
+  codexDictationReady: (): Promise<void> => ipcRenderer.invoke("codex:dictationReady"),
+  transcribeCodexAudio: (audio: ArrayBuffer): Promise<string> => ipcRenderer.invoke("codex:transcribe", audio),
+  openCodexVoice: (sessionId: string): Promise<void> => ipcRenderer.invoke("codex:voiceOpen", sessionId),
   /** Closes the copy of a Claude conversation running elsewhere once its turn is over (now: don't wait). */
   takeOver: (sessionId: string, now?: boolean): Promise<"closed" | "gone"> => ipcRenderer.invoke("session:takeOver", sessionId, now),
   takeOverCancel: (sessionId: string): Promise<void> => ipcRenderer.invoke("session:takeOverCancel", sessionId),

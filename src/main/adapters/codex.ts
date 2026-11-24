@@ -4,6 +4,7 @@ import { agentEnv } from "../env";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import type { AgentEvent, PermissionOption } from "@shared/events";
 import type { AgentSession } from "./claude";
 import { CODEX_ACCESS, CodexMapper, codexAccessFromConfig, codexLimits, codexMcpPanel, codexStatusSections } from "./codex-mapper";
@@ -68,7 +69,7 @@ export class CodexSession implements AgentSession {
   }
 
   private async handshake(): Promise<string> {
-    await this.rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Agent Zoo", version: "0.1.0" }, capabilities: null });
+    await this.rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Prompt Habitat", version: "0.1.0" }, capabilities: null });
     this.write({ method: "initialized" });
     // The configured model can be one the account can't use, so start on the server's default.
     const models = await this.rpc("model/list", {});
@@ -134,6 +135,27 @@ export class CodexSession implements AgentSession {
       });
   }
 
+  async prepareVoiceThread(): Promise<string> {
+    const initialId = await this.ready;
+    const threadId = this.mapper.threadId ?? initialId;
+    const params = { threadId, includeTurns: false };
+    let { thread } = await this.rpc("thread/read", params);
+    if (typeof thread?.path !== "string" || !existsSync(thread.path)) {
+      // Codex saves a fresh thread when it receives a name. This makes it resumable before the first prompt.
+      await this.rpc("thread/name/set", { threadId, name: thread?.name ?? "Voice conversation" });
+      ({ thread } = await this.rpc("thread/read", params));
+    }
+    if (typeof thread?.path !== "string" || !existsSync(thread.path)) throw new Error("Codex couldn't save this conversation for live voice. Try again after sending a prompt.");
+    if (threadId !== (this.mapper.threadId ?? initialId)) throw new Error("The Codex conversation changed. Try opening live voice again.");
+    return threadId;
+  }
+
+  setAccess(mode: string) {
+    if (!Object.hasOwn(CODEX_ACCESS, mode)) throw new Error(`Unknown access level: ${mode}`);
+    this.access = mode;
+    this.accessChanged = true;
+  }
+
   /** Panel requests (named like Claude's, so the same panels draw both agents). */
   async query(subtype: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     const threadId = await this.ready.catch(() => undefined);
@@ -149,9 +171,7 @@ export class CodexSession implements AgentSession {
       }
       case "set_permission_mode": {
         const mode = String(payload.mode);
-        if (!CODEX_ACCESS[mode]) throw new Error(`Unknown access level: ${mode}`);
-        this.access = mode;
-        this.accessChanged = true;
+        this.setAccess(mode);
         return { mode };
       }
       default: throw new Error(`Codex doesn't offer ${subtype}.`);

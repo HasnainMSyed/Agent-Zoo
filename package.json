@@ -44,7 +44,8 @@
   },
   "build": {
     "appId": "io.github.hasnainmsyed.agentzoo",
-    "productName": "Agent Zoo",
+    "productName": "Prompt Habitat",
+    "icon": "src/renderer/src/assets/prompt-habitat-logo.png",
     "directories": {
       "output": "dist",
       "buildResources": "build"

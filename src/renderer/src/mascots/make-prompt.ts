@@ -2,7 +2,7 @@
 // It spells out the pack format and the animation hooks the app's CSS drives (see mascot.css).
 
 export function makeMascotPrompt(description: string, folder: string): string {
-  return `Please design a new mascot pack for Agent Zoo, a desktop app for coding agents. Mascots sit next to the input box and animate with the session's state.
+  return `Please design a new mascot pack for Prompt Habitat, a desktop app for coding agents. Mascots sit next to the input box and animate with the session's state.
 
 What I'd like: ${description.trim()}
 

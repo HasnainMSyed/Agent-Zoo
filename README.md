@@ -1,11 +1,8 @@
 <p align="center">
-  <img src="src/renderer/src/mascots/packs/inkling/mascot.svg" width="96" alt="Inkling, the Claude Code mascot">
-  <img src="src/renderer/src/mascots/packs/prompt/mascot.svg" width="96" alt="Prompt, the Codex mascot">
-  <img src="src/renderer/src/mascots/packs/void/mascot.svg" width="96" alt="Void, the Grok mascot">
-  <img src="src/renderer/src/mascots/packs/dot/mascot.svg" width="96" alt="Dot, an alternative Codex mascot">
+  <img src="src/renderer/src/assets/prompt-habitat-logo.png" width="160" alt="Prompt Habitat logo with three mascots arranged in a triangle">
 </p>
 
-<h1 align="center">Agent Zoo</h1>
+<h1 align="center">Prompt Habitat</h1>
 
 <p align="center">A desktop home for your coding agents. Run <b>Claude Code</b>, <b>Codex</b> and <b>Grok</b> in one app, with real tool cards, diffs, one-click approvals and a mascot that reacts to what the agent is doing.</p>
 
@@ -13,7 +10,7 @@
 
 ## What it does
 
-Agent Zoo drives the agent CLIs you already have installed, through their own machine interfaces, and draws the session as an interface instead of terminal text:
+Prompt Habitat drives the agent CLIs you already have installed, through their own machine interfaces, and draws the session as an interface instead of terminal text:
 
 - **Tool cards:** shell commands with live output and exit status, edits as diffs with line numbers, file reads, searches and to-do lists.
 - **Inline approvals:** see the command or the diff, then choose *Allow once*, *Always allow* or *Deny*.
@@ -22,13 +19,18 @@ Agent Zoo drives the agent CLIs you already have installed, through their own ma
 - **A skin for each agent:** warm coral for Claude, mint on graphite for Codex, neon violet on black for Grok. Light and dark follow your system.
 - **Mascots** that sit on the input box and react to the session: idle, thinking, working, waiting for approval, done, or error.
 
-| Agent | How Agent Zoo talks to it |
+| Agent | How Prompt Habitat talks to it |
 |---|---|
 | Claude Code | `claude -p` in two-way stream-json mode |
 | Codex | `codex app-server` (JSON-RPC) |
 | Grok | `grok agent stdio` (Agent Client Protocol) |
 
 The details are in [`docs/PROTOCOLS.md`](docs/PROTOCOLS.md).
+
+### Codex voice
+
+- **Dictate prompt** records up to a minute and adds the transcript to your editable draft. Launch Prompt Habitat with `OPENAI_API_KEY` set to use OpenAI's audio transcription API. Dictation uses API billing.
+- **Talk to Codex live** opens the same conversation in the Terminal tab. On a CLI build and account that support voice, enter `/voice` to start and `/voice stop` when you're done. A new thread is saved as “Voice conversation” so Codex can reopen it even before the first prompt.
 
 ## Status
 
@@ -74,7 +76,7 @@ Each mascot is a **pack**: a folder with `mascot.json` and `mascot.svg`. The SVG
 
 ## Disclaimer
 
-Agent Zoo is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI or xAI. Claude, Codex and Grok are trademarks of their respective owners. All mascots are original artwork.
+Prompt Habitat is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI or xAI. Claude, Codex and Grok are trademarks of their respective owners. All mascots are original artwork.
 
 ## License
 

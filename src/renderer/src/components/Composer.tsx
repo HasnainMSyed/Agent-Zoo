@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ModelOption, SlashCommand } from "@shared/commands";
-import type { VoiceProvider } from "../voice";
+import type { AgentVoice } from "../voice";
 
 const MicIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 );
 
 const RUN_LABEL: Record<SlashCommand["run"], string | null> = { send: null, action: null, model: "Picker", effort: "Picker", terminal: "Opens in Terminal", panel: "Panel" };
+
+interface DictationJob { controller: AbortController; stop?: () => void }
 
 /** Ranks commands for the "/" menu: names that start with the query first, then ones that contain it. */
 function matchCommands(commands: SlashCommand[], query: string): SlashCommand[] {
@@ -48,35 +50,37 @@ function ModelPicker({ models, model, effort, focus, onPick, onClose }: {
   );
 }
 
-export function Composer({ running, disabled, onSend, onStop, mascot, status, commands, models, model, effort, onCommand, onPickModel, panel, modeLabel, onMode, sessionId, voice, onVoiceTerminal }: {
+export function Composer({ running, disabled, onSend, onStop, mascot, status, commands, models, model, effort, onCommand, onPickModel, panel, modeLabel, onMode, draft, onDraft, voice, onVoiceTerminal }: {
   running: boolean; disabled?: boolean; onSend: (text: string) => void; onStop: () => void; mascot: ReactNode; status: string;
   commands: SlashCommand[]; models: ModelOption[]; model?: string; effort?: string;
   onCommand: (cmd: SlashCommand, args: string) => void; onPickModel: (model?: string, effort?: string) => void;
   /** An open panel (Claude's /mcp, /status, /context, mode), drawn above the input box. */
   panel?: ReactNode; modeLabel?: string; onMode?: () => void;
-  /** This agent's voice (see voice.ts); a "terminal" voice calls onVoiceTerminal. */
-  sessionId?: string; voice?: VoiceProvider; onVoiceTerminal?: () => void;
+  draft: string; onDraft: (text: string) => void;
+  voice?: AgentVoice; onVoiceTerminal?: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(draft);
   const [highlight, setHighlight] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [picker, setPicker] = useState<null | "model" | "effort">(null);
   const ref = useRef<HTMLTextAreaElement>(null);
-  // Dictation: what was in the box before, the words so far, and how to stop listening.
-  const [listening, setListening] = useState(false);
+  const [dictation, setDictation] = useState<"starting" | "recording" | "transcribing" | null>(null);
   const [voiceError, setVoiceError] = useState("");
-  const stopVoice = useRef<(() => void) | null>(null);
-  useEffect(() => () => stopVoice.current?.(), [sessionId]);
+  const recording = useRef<DictationJob | null>(null);
+  useEffect(() => () => recording.current?.controller.abort(), []);
 
   // The menu shows while typing a command name: "/" followed by no space yet.
   const query = /^\/(\S*)$/.exec(text)?.[1];
   const matches = useMemo(() => (query === undefined ? [] : matchCommands(commands, query)), [commands, query]);
   const menuOpen = query !== undefined && !dismissed && matches.length > 0;
 
-  const setValue = (v: string) => {
-    setText(v); setHighlight(0); setDismissed(false);
+  useLayoutEffect(() => {
     const el = ref.current;
     if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 240) + "px"; }
+  }, [text]);
+
+  const setValue = (v: string) => {
+    setText(v); onDraft(v); setHighlight(0); setDismissed(false);
   };
 
   const run = (cmd: SlashCommand, args: string) => {
@@ -95,7 +99,7 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
 
   const submit = () => {
     const t = text.trim();
-    if (!t || disabled) return;
+    if (!t || disabled || recording.current) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(t);
     const cmd = m && commands.find((c) => c.name === m[1]);
     if (cmd) { if (!running || cmd.run === "terminal" || cmd.run === "panel" || cmd.run === "model" || cmd.run === "effort") run(cmd, m![2]!.trim()); return; }
@@ -106,24 +110,42 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
 
   const modelLabel = models.find((m) => m.id === model)?.label ?? model;
 
-  const toggleVoice = async () => {
-    if (!voice) return;
-    if (voice.kind === "terminal") { onVoiceTerminal?.(); return; }
-    if (listening) { stopVoice.current?.(); stopVoice.current = null; setListening(false); return; }
+  const cancelDictation = () => {
+    recording.current?.controller.abort();
+    recording.current = null;
+    setDictation(null);
+  };
+
+  const toggleDictation = async () => {
+    if (recording.current) { recording.current.stop?.(); return; }
+    if (!voice?.dictate) return;
     setVoiceError("");
-    const before = text ? text.replace(/\s*$/, " ") : "";
-    let done = "";
+    const controller = new AbortController();
+    const job: DictationJob = { controller };
+    recording.current = job;
+    setDictation("starting");
     try {
-      stopVoice.current = await voice.start(sessionId ?? "", {
-        onText: (t, final) => { if (final) done += (done ? " " : "") + t; setValue(before + done + (final ? "" : (done ? " " : "") + t)); },
-        onError: (m) => { setVoiceError(m); setListening(false); stopVoice.current = null; },
+      const transcript = await voice.dictate(controller.signal, {
+        onRecording: (stop) => { job.stop = stop; setDictation("recording"); },
+        onTranscribing: () => { job.stop = undefined; setDictation("transcribing"); },
       });
-      setListening(true);
-    } catch (err) { setVoiceError(err instanceof Error ? err.message : String(err)); }
+      if (controller.signal.aborted) return;
+      const current = ref.current?.value ?? "";
+      const separator = current && !/\s$/.test(current) ? " " : "";
+      setValue(current + separator + transcript);
+      ref.current?.focus();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!controller.signal.aborted) setVoiceError(message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    } finally {
+      if (recording.current === job) { recording.current = null; setDictation(null); }
+    }
   };
 
   return (
-    <div className="composer">
+    <div className="composer" onKeyDownCapture={(e) => {
+      if (e.key === "Escape" && recording.current) { e.preventDefault(); e.stopPropagation(); cancelDictation(); }
+    }}>
       <div className="composer-mascot">{mascot}<span className="composer-status">{status}</span></div>
       {menuOpen && (
         <div className="slash-menu" role="listbox" aria-label="Commands">
@@ -156,17 +178,30 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
             if (e.key === "Escape" && running) onStop();
             if (e.key === "Escape" && picker) setPicker(null);
           }} />
-        {voice && (
-          <button className={`mic ${listening ? "on" : ""}`} onClick={toggleVoice} disabled={disabled || (voice.kind === "terminal" && running)}
-            aria-pressed={voice.kind === "dictate" ? listening : undefined} aria-label={listening ? "Stop listening" : "Voice"}
-            title={voice.kind === "terminal" && running ? "Wait for the agent to finish, or stop it, to talk" : listening ? "Stop listening" : voice.title}>
+        {voice && !voice.dictate && (
+          <button className="mic" onClick={onVoiceTerminal} disabled={disabled || running}
+            aria-label={voice.terminal.title} title={running ? "Wait for the agent to finish, or stop it, to talk" : voice.terminal.title}>
             <MicIcon />
           </button>
         )}
         {running
           ? <button className="send stop" onClick={onStop} aria-label="Stop">Stop</button>
-          : <button className="send" onClick={submit} disabled={!text.trim() || disabled} aria-label="Send">Send</button>}
+          : <button className="send" onClick={submit} disabled={!text.trim() || disabled || Boolean(dictation)} aria-label="Send">Send</button>}
       </div>
+      {voice?.dictate && (
+        <div className="voice-actions">
+          <button className={`model-chip voice-action ${dictation === "recording" ? "recording" : ""}`} onClick={toggleDictation}
+            disabled={disabled || dictation === "starting" || dictation === "transcribing"}
+            title="Record a prompt draft with OpenAI transcription">
+            <MicIcon />{dictation === "recording" ? "Stop dictation" : dictation === "starting" ? "Opening mic…" : dictation === "transcribing" ? "Transcribing…" : "Dictate prompt"}
+          </button>
+          <button className="model-chip voice-action" onClick={onVoiceTerminal} disabled={disabled || running || Boolean(dictation)}
+            title={running ? "Wait for Codex to finish, or stop it, to talk" : voice.terminal.title}>Talk to Codex live</button>
+          {dictation && <button className="model-chip" onClick={cancelDictation}>Cancel dictation</button>}
+          <span className="voice-status" role="status">{dictation === "recording" ? "Recording" : dictation === "transcribing" ? "Transcribing your recording" : ""}</span>
+          {voiceError && <span className="voice-error" role="alert">{voiceError}</span>}
+        </div>
+      )}
       <div className="composer-foot">
         <button className="model-chip" onClick={() => setPicker(picker === "model" ? null : "model")} title="Choose the model and effort">
           {modelLabel ?? "Model"}{effort ? ` · ${effort}` : ""}<span aria-hidden="true"> ▾</span>
@@ -176,7 +211,6 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
             {modeLabel}<span aria-hidden="true"> ▾</span>
           </button>
         )}
-        {voiceError && <span className="voice-error" role="alert">{voiceError}</span>}
         <span className="composer-hint">Enter to send · Shift+Enter for a new line · / for commands{running ? " · Esc to stop" : ""}</span>
       </div>
     </div>

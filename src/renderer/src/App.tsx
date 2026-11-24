@@ -18,6 +18,7 @@ import { applySettings, loadSettings, saveSettings, type Settings } from "./sett
 import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 import { VOICE } from "./voice";
+import logoUrl from "./assets/prompt-habitat-logo.png";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
 
@@ -110,9 +111,9 @@ function UpdatePrompt({ update, busy, extras, waiting, onUpdate, onCancel, onLat
       <div className="update-text">
         {waiting ? <>
           <strong>Updating once your agents finish</strong>
-          <span>{busy} {busy === 1 ? "agent is" : "agents are"} still working. Agent Zoo restarts into {update.version} as soon as {busy === 1 ? "it's" : "they're"} done, and your sessions reopen.</span>
+          <span>{busy} {busy === 1 ? "agent is" : "agents are"} still working. Prompt Habitat restarts into {update.version} as soon as {busy === 1 ? "it's" : "they're"} done, and your sessions reopen.</span>
         </> : <>
-          <strong>Agent Zoo {update.version} is ready</strong>
+          <strong>Prompt Habitat {update.version} is ready</strong>
           <span>Restarts in a moment and reopens your sessions where they were.{busy ? ` It waits for ${busy === 1 ? "the agent that's" : `the ${busy} agents that are`} working.` : ""}</span>
           {extras.map((x) => <span key={x} className="update-extra">{x}</span>)}
         </>}
@@ -143,6 +144,7 @@ export function App() {
   const [elsewhere, setElsewhere] = useState<PastSession | null>(null);
   // The session whose Terminal view was opened to talk (shows how voice works there).
   const [voiceHint, setVoiceHint] = useState<string | null>(null);
+  const drafts = useRef(new Map<string, string>());
   // A new version of the app: what's downloaded, whether it's put off till later, and whether it's waiting for agents.
   const [update, setUpdate] = useState<UpdateInfo>({ status: "idle" });
   const [updateLater, setUpdateLater] = useState(false);
@@ -266,6 +268,7 @@ export function App() {
   const leadAgent: AgentId = settings.defaultAgent === "last" ? lastAgent : settings.defaultAgent;
   const agent: AgentId = active?.info.agent ?? leadAgent;
   const pack = packFor(agent);
+  const voice = VOICE[agent];
 
   const decide = (permId: string, d: PermissionOption["id"]) => { if (activeId) window.agents.command(activeId, { kind: "permission", id: permId, decision: d }); };
   const send = (text: string) => { if (activeId) window.agents.command(activeId, { kind: "send", text }); };
@@ -278,12 +281,13 @@ export function App() {
     if (view === "gui") clearTerminalBuffer(id);
     try {
       // An app window left open across an update can run a newer page against an older bridge.
-      if (typeof window.agents.setView !== "function") throw new Error("Agent Zoo was updated while it was open. Quit it and start it again to finish updating.");
+      if (typeof window.agents.setView !== "function") throw new Error("Prompt Habitat was updated while it was open. Quit it and start it again to finish updating.");
       await window.agents.setView(id, view, undefined, undefined, typeOnOpen);
     } catch (err) { showError(id, err); }
   };
   const runCommand = (id: string, cmd: SessionCommand) => { window.agents.command(id, cmd).catch((err) => showError(id, err)); };
   const closeSession = (id: string) => {
+    drafts.current.delete(id);
     window.agents.closeSession(id).then(() => refreshPast()); // also ends its shells
     setShells((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setSessions((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -444,7 +448,7 @@ export function App() {
       {layout.left ? (
         <aside className="sidebar">
           <div className="sidebar-head">
-            <div className="brand">Agent Zoo</div>
+            <div className="brand"><img src={logoUrl} alt="" width={32} height={32} />Prompt Habitat</div>
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>
           <button className="new-session" onClick={() => { setActiveId(null); setShowSettings(false); }}>+ New session</button>
@@ -522,10 +526,10 @@ export function App() {
             </div>
           </header>
         )}
-        {active?.view === "terminal" && voiceHint === active.info.id && VOICE[active.info.agent]?.kind === "terminal" && (
+        {active?.view === "terminal" && voiceHint === active.info.id && voice && (
           <div className="voice-hint" role="status">
             <span className="voice-dot" aria-hidden="true" />
-            <span>{(VOICE[active.info.agent] as { hint: string }).hint}</span>
+            <span>{voice.terminal.hint}</span>
             <button className="icon-btn" onClick={() => setVoiceHint(null)} aria-label="Dismiss">×</button>
           </div>
         )}
@@ -533,7 +537,7 @@ export function App() {
         {active ? <Transcript items={active.items} onDecide={decide} empty={empty} /> : <div className="home-scroll">{empty}</div>}
         {active && (
           <div className="composer-dock" ref={dockRef}>
-          <Composer running={active.running} disabled={active.exited} onSend={send} onStop={stop}
+          <Composer key={active.info.id} running={active.running} disabled={active.exited} onSend={send} onStop={stop}
             commands={active.commands} models={active.models} model={active.model} effort={active.effort}
             onCommand={(cmd, args) => {
               const typed = `/${cmd.name}${args ? " " + args : ""}`;
@@ -549,12 +553,18 @@ export function App() {
             modeLabel={active.info.agent === "claude" ? modeLabel(active.permissionMode ?? "default")
               : active.info.agent === "codex" ? `Access: ${modeLabel(active.permissionMode ?? "auto", "codex")}` : undefined}
             onMode={() => setPanel(panel?.kind === "mode" && panel.sessionId === active.info.id ? null : { sessionId: active.info.id, kind: "mode" })}
-            sessionId={active.info.id} voice={VOICE[active.info.agent]}
+            draft={drafts.current.get(active.info.id) ?? ""}
+            onDraft={(text) => drafts.current.set(active.info.id, text)} voice={voice}
             onVoiceTerminal={async () => {
-              const v = VOICE[active.info.agent];
-              const typed = v?.kind === "terminal" ? await v.typeOnOpen?.().catch(() => undefined) : undefined;
-              setVoiceHint(active.info.id);
-              switchView(active.info.id, "terminal", typed);
+              const id = active.info.id;
+              try {
+                if (active.info.agent === "codex") await window.agents.openCodexVoice(id);
+                else {
+                  const typed = await voice?.terminal.typeOnOpen?.().catch(() => undefined);
+                  await switchView(id, "terminal", typed);
+                }
+                setVoiceHint(id);
+              } catch (err) { showError(id, err); }
             }}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />

@@ -1,3 +1,4 @@
+/// <reference types="electron-vite/node" />
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
@@ -14,6 +15,8 @@ import { userInfo } from "node:os";
 import { loadShellPath } from "./env";
 import { takeOverClaude } from "./live-sessions";
 import { installUpdate, startUpdates, updateState } from "./updater";
+import { codexDictationKey, transcribeCodexAudio } from "./codex-dictation";
+import logoPath from "../renderer/src/assets/prompt-habitat-logo.png?asset";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
 // AGENTS_GUI_TEST_PROFILE=name keeps one between runs (to test what survives a restart).
@@ -52,7 +55,7 @@ function createWindow() {
   const offscreen = Boolean(process.env.AGENTS_GUI_SCREENSHOT);
   win = new BrowserWindow({
     width: 1280, height: 860, minWidth: 760, minHeight: 520, show: !offscreen,
-    title: "Agent Zoo", backgroundColor: "#191919", autoHideMenuBar: true,
+    title: "Prompt Habitat", icon: logoPath, backgroundColor: "#191919", autoHideMenuBar: true,
     webPreferences: { preload: join(import.meta.dirname, "../preload/index.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen },
   });
   // Links in agent output open in the system browser, never inside the app.
@@ -136,6 +139,15 @@ ipcMain.handle("claude:voiceOn", () => {
     return cfg?.voice?.enabled === true || cfg?.voiceEnabled === true;
   } catch { return false; }
 });
+ipcMain.handle("codex:dictationReady", (event) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("Dictation is available in the app window.");
+  codexDictationKey();
+});
+ipcMain.handle("codex:transcribe", (event, audio: unknown) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("Dictation is available in the app window.");
+  return transcribeCodexAudio(audio);
+});
+ipcMain.handle("codex:voiceOpen", (_event, sessionId: string) => manager.openCodexVoice(sessionId));
 // "Bring it here": close the copy of a Claude conversation running elsewhere once its turn is
 // over, so the app can reopen it with everything it did. Progress goes to the page as it waits.
 const takeovers = new Map<string, { cancelled: boolean }>();
