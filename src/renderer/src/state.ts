@@ -29,6 +29,7 @@ export interface Session {
   commands: SlashCommand[];
   models: ModelOption[];
   effort?: string;
+  title?: string;
 }
 
 export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui", commands: [], models: [] });
@@ -62,7 +63,12 @@ export function apply(s: Session, e: AgentEvent): Session {
   const items = s.items;
   switch (e.kind) {
     case "session.started": return { ...s, model: e.model };
-    case "user.message": items.push({ type: "user", id: e.id, text: e.text }); return { ...s, items };
+    case "user.message": {
+      items.push({ type: "user", id: e.id, text: e.text });
+      // The first message names the session in the sidebar.
+      const title = s.title ?? (e.text.replace(/\s+/g, " ").trim().slice(0, 48) || undefined);
+      return { ...s, items, title };
+    }
     case "turn.started": return { ...s, running: true, status: "thinking" };
     case "thinking.delta":
     case "message.delta": {

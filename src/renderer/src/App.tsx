@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentId, PermissionOption, SessionCommand } from "@shared/events";
 import { apply, newSession, type Session } from "./state";
+import type React from "react";
 import { packFor } from "./mascots";
 import { Mascot, mascotLabel } from "./components/Mascot";
 import { Transcript } from "./components/Transcript";
@@ -23,7 +24,36 @@ function ContextRing({ used, total }: { used?: number; total?: number }) {
   );
 }
 
+/** State that survives restarts (panel layout, folded sections). */
+function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try { const raw = localStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : initial; } catch { return initial; }
+  });
+  const set = (v: T) => { setValue(v); try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ } };
+  return [value, set];
+}
+
+function RailSection({ title, id, folded, setFolded, summary, children }: {
+  title: string; id: string; folded: string[]; setFolded: (v: string[]) => void; summary?: string; children: React.ReactNode;
+}) {
+  const key = `rail:${id}`;
+  const isFolded = folded.includes(key);
+  return (
+    <section>
+      <button className="rail-head" aria-expanded={!isFolded} onClick={() => setFolded(isFolded ? folded.filter((f) => f !== key) : [...folded, key])}>
+        <span className={`chev-small ${isFolded ? "" : "open"}`} aria-hidden="true">›</span>
+        <h2>{title}</h2>{summary && <span className="rail-summary">{summary}</span>}
+      </button>
+      {!isFolded && children}
+    </section>
+  );
+}
+
 export function App() {
+  const [layoutState, setLayoutState] = usePersisted("zoo.layout", { left: true, right: true });
+  const layout = layoutState;
+  const setLayout = (patch: Partial<typeof layoutState>) => setLayoutState({ ...layoutState, ...patch });
+  const [folded, setFolded] = usePersisted<string[]>("zoo.folded", []);
   const [sessions, setSessions] = useState<Record<string, Session>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
@@ -111,25 +141,58 @@ export function App() {
     </div>
   );
 
+  // Sessions grouped by project folder, in the order the folders were first used.
+  const folders = new Map<string, Session[]>();
+  for (const s of list) folders.set(s.info.cwd, [...(folders.get(s.info.cwd) ?? []), s]);
+  const sessionLabel = (s: Session) => s.title ?? `${AGENT_NAMES[s.info.agent]} session`;
+
   return (
-    <div className="app" data-skin={agent}>
-      <aside className="sidebar">
-        <div className="brand">Agent Zoo</div>
-        <button className="new-session" onClick={() => setActiveId(null)}>+ New session</button>
-        <nav className="session-list" aria-label="Sessions">
+    <div className={`app ${layout.left ? "" : "no-left"} ${layout.right && active ? "" : "no-right"}`} data-skin={agent}>
+      {layout.left ? (
+        <aside className="sidebar">
+          <div className="sidebar-head">
+            <div className="brand">Agent Zoo</div>
+            <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
+          </div>
+          <button className="new-session" onClick={() => setActiveId(null)}>+ New session</button>
+          <nav className="session-list" aria-label="Sessions by folder">
+            {[...folders.entries()].map(([folder, items]) => {
+              const isFolded = folded.includes(folder);
+              return (
+                <div key={folder} className="folder-group">
+                  <button className="folder-head" aria-expanded={!isFolded} title={folder}
+                    onClick={() => setFolded(isFolded ? folded.filter((f) => f !== folder) : [...folded, folder])}>
+                    <span className={`chev-small ${isFolded ? "" : "open"}`} aria-hidden="true">›</span>
+                    <span className="folder-name">{folder.split("/").pop() || folder}</span>
+                    <span className="folder-count">{items.length}</span>
+                  </button>
+                  {!isFolded && items.map((s) => (
+                    <div key={s.info.id} className={`session-row ${s.info.id === activeId ? "active" : ""}`}>
+                      <button onClick={() => setActiveId(s.info.id)}>
+                        <span className={`dot ${s.status}`} aria-hidden="true" />
+                        <span className="session-name">{sessionLabel(s)}</span>
+                        <span className="session-agent">{AGENT_NAMES[s.info.agent]}{s.view === "terminal" ? " · Terminal" : ""}</span>
+                      </button>
+                      <button className="close" onClick={() => closeSession(s.info.id)} aria-label={`Close ${sessionLabel(s)}`}>×</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {!list.length && <p className="muted small pad">No sessions yet</p>}
+          </nav>
+        </aside>
+      ) : (
+        <aside className="sidebar-slim">
+          <button className="icon-btn" onClick={() => setLayout({ left: true })} aria-label="Show the sessions panel" title="Show the sessions panel">»</button>
+          <button className="icon-btn" onClick={() => setActiveId(null)} aria-label="New session" title="New session">+</button>
           {list.map((s) => (
-            <div key={s.info.id} className={`session-row ${s.info.id === activeId ? "active" : ""}`}>
-              <button onClick={() => setActiveId(s.info.id)}>
-                <span className={`dot ${s.status}`} aria-hidden="true" />
-                <span className="session-name">{s.info.title}</span>
-                <span className="session-agent">{AGENT_NAMES[s.info.agent]}</span>
-              </button>
-              <button className="close" onClick={() => closeSession(s.info.id)} aria-label={`Close ${s.info.title}`}>×</button>
-            </div>
+            <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => setActiveId(s.info.id)} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
+              <span className={`dot ${s.status}`} aria-hidden="true" />
+            </button>
           ))}
-          {!list.length && <p className="muted small pad">No sessions yet</p>}
-        </nav>
-      </aside>
+        </aside>
+      )}
 
       <main className="main">
         {active && (
@@ -146,6 +209,8 @@ export function App() {
               {active.model && <span className="chip">{active.model}</span>}
               <ContextRing used={active.usage?.contextUsed} total={active.usage?.contextWindow} />
               {active.usage?.costUsd !== undefined && <span className="chip">${active.usage.costUsd.toFixed(2)}</span>}
+              <button className="icon-btn" onClick={() => setLayout({ right: !layout.right })}
+                aria-label={layout.right ? "Hide the details panel" : "Show the details panel"} title={layout.right ? "Hide the details panel" : "Show the details panel"}>{layout.right ? "»" : "«"}</button>
             </div>
           </header>
         )}
@@ -166,16 +231,15 @@ export function App() {
         </>}
       </main>
 
-      {active && (
+      {active && layout.right && (
         <aside className="rail">
-          <section>
-            <h2>Plan</h2>
+          <RailSection title="Plan" id="plan" folded={folded} setFolded={setFolded}
+            summary={active.plan.length ? `${active.plan.filter((p) => p.status === "done").length}/${active.plan.length}` : undefined}>
             {active.plan.length
               ? <ul className="plan">{active.plan.map((p, i) => <li key={i} data-status={p.status}>{p.text}</li>)}</ul>
               : <p className="muted small">The agent's to-do list shows up here when it makes one.</p>}
-          </section>
-          <section>
-            <h2>Session</h2>
+          </RailSection>
+          <RailSection title="Session" id="session" folded={folded} setFolded={setFolded}>
             <dl>
               <dt>Agent</dt><dd>{AGENT_NAMES[active.info.agent]}</dd>
               {active.model && <><dt>Model</dt><dd>{active.model}</dd></>}
@@ -183,7 +247,7 @@ export function App() {
               {active.usage?.costUsd !== undefined && <><dt>Cost</dt><dd>${active.usage.costUsd.toFixed(2)}</dd></>}
               <dt>Hooks run</dt><dd>{active.hooks}</dd>
             </dl>
-          </section>
+          </RailSection>
         </aside>
       )}
     </div>
