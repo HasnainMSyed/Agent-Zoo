@@ -38,6 +38,7 @@ interface Entry {
   model?: string;  // chosen in the picker; Claude and Grok apply it by restarting on the same conversation
   effort?: string;
   permissionMode?: string; // Claude's, kept so a restart or the Terminal view keeps the same mode
+  forkFrom?: string; // "Open a copy": the conversation this one starts as a copy of (until it has its own)
   codexAccessOverride?: string;
   pendingType?: () => void; // types a queued command once the terminal interface first draws
 }
@@ -51,13 +52,16 @@ export class SessionManager {
 
   constructor(private sink: Sink) {}
 
-  /** Starts a session; `resumeId` reopens a conversation the agent saved earlier. */
-  create(agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string): SessionInfo {
+  /** Starts a session; `resumeId` reopens a conversation the agent saved earlier (or, with fork, a copy of it). */
+  create(agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string, fork?: boolean): SessionInfo {
+    if (fork && (!resumeId || agent === "grok")) throw new Error(agent === "grok" ? "Grok can't copy a conversation yet." : "Nothing to copy.");
     if (cloud !== undefined && (agent !== "claude" || !/^[\w:/.?=&%-]{4,300}$/.test(cloud))) throw new Error("That doesn't look like a cloud session link or ID.");
     const info: SessionInfo = { id: randomUUID(), agent, cwd, title: cloud ? "Cloud session" : basename(cwd), cloud };
     const entry: Entry = {
       info, view: "gui", gen: 0, hadTurn: Boolean(resumeId), usedTerminal: false, running: false,
-      nativeId: resumeId ?? (agent === "claude" ? randomUUID() : undefined),
+      // A copy gets its own id: Claude's is chosen here; Codex's arrives when the copy is made.
+      nativeId: fork ? (agent === "claude" ? randomUUID() : undefined) : resumeId ?? (agent === "claude" ? randomUUID() : undefined),
+      forkFrom: fork ? resumeId : undefined,
       permissionMode: agent === "claude" && permissionMode && permissionMode !== "default" ? permissionMode : undefined,
     };
     info.nativeId = entry.nativeId;
@@ -89,17 +93,22 @@ export class SessionManager {
     const { model, effort } = entry;
     if (agent === "claude") {
       const resume = claudeHasHistory(cwd, entry.nativeId!);
+      // A copy that hasn't had its own first message yet still starts from the original.
+      const forkFrom = !resume && entry.forkFrom && claudeHasHistory(cwd, entry.forkFrom) ? entry.forkFrom : undefined;
       // Show the saved conversation first, so Chat matches whatever happened in the Terminal view.
-      if (resume) {
-        try { emit({ kind: "history", events: claudeHistory(readFileSync(claudeFile(cwd, entry.nativeId!), "utf8")) }); }
+      const shown = resume ? entry.nativeId! : forkFrom;
+      if (shown) {
+        try { emit({ kind: "history", events: claudeHistory(readFileSync(claudeFile(cwd, shown), "utf8")) }); }
         catch (err) { emit({ kind: "error", message: `Couldn't read the saved conversation: ${(err as Error).message}` }); }
       }
-      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume, model, effort, permissionMode: entry.permissionMode });
+      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume, forkFrom, model, effort, permissionMode: entry.permissionMode });
       return;
     }
     // Codex and Grok: continue the known conversation, or the newest one if it began in the terminal.
     const resume = entry.nativeId && entry.hadTurn ? entry.nativeId : entry.usedTerminal ? "latest" : undefined;
-    entry.agent = agent === "codex" ? new CodexSession(cwd, emit, resume) : new GrokSession(cwd, emit, resume, { model, effort });
+    // A Codex copy is made once (thread/fork); after that it has its own id and resumes like any other.
+    const fork = agent === "codex" && !entry.nativeId && entry.forkFrom ? entry.forkFrom : undefined;
+    entry.agent = agent === "codex" ? new CodexSession(cwd, emit, fork ? undefined : resume, "codex", fork) : new GrokSession(cwd, emit, resume, { model, effort });
     if (agent === "codex" && (model || effort)) entry.agent.setModel?.(model, effort);
     if (entry.agent instanceof CodexSession && entry.codexAccessOverride) {
       entry.agent.setAccess(entry.codexAccessOverride);
@@ -128,7 +137,10 @@ export class SessionManager {
     if (agent === "claude") {
       const mode = entry.permissionMode && entry.permissionMode !== "default" ? ["--permission-mode", entry.permissionMode] : [];
       const flags = [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...mode];
-      return ["claude", [...(claudeHasHistory(cwd, id!) ? ["--resume", id!] : ["--session-id", id!]), ...flags]];
+      const idArgs = claudeHasHistory(cwd, id!) ? ["--resume", id!]
+        : entry.forkFrom && claudeHasHistory(cwd, entry.forkFrom) ? ["--resume", entry.forkFrom, "--fork-session", "--session-id", id!]
+        : ["--session-id", id!];
+      return ["claude", [...idArgs, ...flags]];
     }
     const known = id && entry.hadTurn;
     if (agent === "codex") {

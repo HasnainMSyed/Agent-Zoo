@@ -26,7 +26,8 @@ export class CodexSession implements AgentSession {
   private accessChanged = false;      // only override Codex's own config once the user picks a preset
 
   /** `resume`: a thread id to continue, "latest" for the newest thread in this folder, or nothing for a new thread. */
-  constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "codex") {
+  /** `fork`: a thread to copy; the session continues in the copy (thread/fork). */
+  constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "codex", private fork?: string) {
     this.proc = spawn(bin, ["app-server"], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
     this.proc.on("error", (err) => this.emit({ kind: "error", message: `Couldn't start Codex: ${err.message}. Check that \`codex\` is on your PATH.` }));
     this.proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
@@ -95,14 +96,14 @@ export class CodexSession implements AgentSession {
       { name: "new", description: "Start a new conversation in this session", run: "action" },
     ]) });
     const withModel = model ? { model } : {};
-    let threadId = this.resume;
+    let threadId = this.resume ?? this.fork;
     if (threadId === "latest") {
       const recent = await this.rpc("thread/list", { cwd: this.cwd, limit: 1 });
       threadId = recent.data?.[0]?.id;
     }
     // thread/resume replays thread/started, so the UI learns the id and model either way.
     const res = threadId
-      ? await this.rpc("thread/resume", { threadId, ...withModel })
+      ? await this.rpc(this.fork ? "thread/fork" : "thread/resume", { threadId, ...withModel })
       : await this.rpc("thread/start", { cwd: this.cwd, ...withModel });
     if (threadId && !this.mapper.threadId) {
       this.mapper.threadId = res.thread.id;

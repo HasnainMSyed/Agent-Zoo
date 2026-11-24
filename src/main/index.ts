@@ -106,7 +106,7 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string) => manager.create(agent, cwd, resumeId, permissionMode, cloud));
+ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string, fork?: boolean) => manager.create(agent, cwd, resumeId, permissionMode, cloud, fork));
 // Codex Cloud tasks: show a task's diff, or apply it to a local folder. Task ids are checked before use.
 ipcMain.handle("cloud:run", (_e, action: "diff" | "apply", taskId: string, cwd?: string, cols?: number, rows?: number) => {
   if (!/^[\w-]{3,120}$/.test(taskId) || (action !== "diff" && action !== "apply")) throw new Error("Unknown cloud task.");

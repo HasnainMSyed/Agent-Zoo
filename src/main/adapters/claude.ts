@@ -47,8 +47,11 @@ export class ClaudeSession implements AgentSession {
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 
   /** `sessionId` is chosen by the app so the Terminal view can always resume the same conversation. */
-  constructor(cwd: string, private emit: (e: AgentEvent) => void, opts: { sessionId: string; resume: boolean; model?: string; effort?: string; permissionMode?: string }, bin = "claude") {
-    const idArgs = opts.resume ? ["--resume", opts.sessionId] : ["--session-id", opts.sessionId];
+  constructor(cwd: string, private emit: (e: AgentEvent) => void, opts: { sessionId: string; resume: boolean; forkFrom?: string; model?: string; effort?: string; permissionMode?: string }, bin = "claude") {
+    // forkFrom: start as a copy of that conversation, under this session's own id.
+    const idArgs = opts.resume ? ["--resume", opts.sessionId]
+      : opts.forkFrom ? ["--resume", opts.forkFrom, "--fork-session", "--session-id", opts.sessionId]
+      : ["--session-id", opts.sessionId];
     const modelArgs = [
       ...(opts.model ? ["--model", opts.model] : []), ...(opts.effort ? ["--effort", opts.effort] : []),
       ...(opts.permissionMode && opts.permissionMode !== "default" ? ["--permission-mode", opts.permissionMode] : []),

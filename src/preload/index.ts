@@ -3,7 +3,8 @@ import type { AgentEvent, AgentId, SessionCommand, SessionInfo } from "@shared/e
 import type { AccountInfo, PastSession, UsageLimits } from "@shared/commands";
 
 const api = {
-  createSession: (agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string): Promise<SessionInfo> => ipcRenderer.invoke("session:create", agent, cwd, resumeId, permissionMode, cloud),
+  /** fork: open a copy of the resumed conversation (Claude and Codex). */
+  createSession: (agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string, fork?: boolean): Promise<SessionInfo> => ipcRenderer.invoke("session:create", agent, cwd, resumeId, permissionMode, cloud, fork),
   cloudRun: (action: "diff" | "apply", taskId: string, cwd?: string): Promise<string> => ipcRenderer.invoke("cloud:run", action, taskId, cwd),
   onSessionsChanged(cb: () => void) {
     const listener = () => cb();

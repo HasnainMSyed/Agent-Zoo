@@ -82,7 +82,7 @@ const LIVE_STATUS: Record<string, string> = {
 };
 
 /** A conversation you're opening is running somewhere else (a terminal, an editor). */
-function ElsewhereDialog({ p, onBring, onAnyway, onCancel }: { p: PastSession; onBring: () => void; onAnyway: () => void; onCancel: () => void }) {
+function ElsewhereDialog({ p, onBring, onCopy, onAnyway, onCancel }: { p: PastSession; onBring: () => void; onCopy: () => void; onAnyway: () => void; onCancel: () => void }) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
     window.addEventListener("keydown", key);
@@ -99,6 +99,10 @@ function ElsewhereDialog({ p, onBring, onAnyway, onCancel }: { p: PastSession; o
         <button className="choice primary" autoFocus onClick={onBring}>
           <strong>Bring it here</strong>
           <span>Closes the other copy as soon as it finishes what it's doing, then carries on here with everything it did.</span>
+        </button>
+        <button className="choice" onClick={onCopy}>
+          <strong>Open a copy</strong>
+          <span>Starts a separate copy here with everything so far. The other one carries on untouched, and the two go their own ways.</span>
         </button>
         <button className="choice" onClick={onAnyway}>
           <strong>Open here too</strong>
@@ -254,10 +258,10 @@ export function App() {
     setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, e) } : prev));
   }), []);
 
-  const start = useCallback(async (agent: AgentId, opts: { cwd?: string; prompt?: string; resumeId?: string; cloud?: string } = {}) => {
+  const start = useCallback(async (agent: AgentId, opts: { cwd?: string; prompt?: string; resumeId?: string; cloud?: string; fork?: boolean } = {}) => {
     setStartError("");
     try {
-      const info = await window.agents.createSession(agent, opts.cwd ?? cwd, opts.resumeId, agent === "claude" ? settings.claudeMode : undefined, opts.cloud);
+      const info = await window.agents.createSession(agent, opts.cwd ?? cwd, opts.resumeId, agent === "claude" ? settings.claudeMode : undefined, opts.cloud, opts.fork);
       if (opts.cloud) setTimeout(() => window.agents.setView(info.id, "terminal").catch(() => {}), 50);
       const waiting = early.current.get(info.id) ?? [];
       early.current.delete(info.id);
@@ -503,6 +507,10 @@ export function App() {
       for (const t of TOOLS) act(`tool-${t.id}`, pane === t.id ? `Hide the ${t.label.toLowerCase()}` : `Show the ${t.label.toLowerCase()}`, () => setPane(pane === t.id ? null : t.id), "side panel");
       if (!active.info.cloud) act("view", active.view === "gui" ? "Switch to Terminal view" : "Switch to Chat view", () => switchView(active.info.id, active.view === "gui" ? "terminal" : "gui"), undefined, "tui");
       if (active.running) act("stop", "Stop the agent", stop, "Esc", "interrupt cancel");
+      const nid = active.nativeId ?? active.info.nativeId;
+      if (nid && active.info.agent !== "grok" && !active.info.cloud && active.items.length) {
+        act("copy", "Open a copy of this conversation", () => start(active.info.agent, { cwd: active.info.cwd, resumeId: nid, fork: true }), "a separate branch", "fork duplicate branch clone");
+      }
       act("close", "Remove this session from the sidebar", () => removeOpen(active.info.id), undefined, "close end");
     }
     act("left", layout.left ? "Hide the sessions panel" : "Show the sessions panel", () => setLayout({ left: !layout.left }), undefined, "sidebar");
@@ -724,6 +732,7 @@ export function App() {
       {elsewhere && (
         <ElsewhereDialog p={elsewhere} onCancel={() => setElsewhere(null)}
           onBring={() => { const p = elsewhere; setElsewhere(null); bringHere(p); }}
+          onCopy={() => { const p = elsewhere; setElsewhere(null); start(p.agent, { cwd: p.cwd, resumeId: p.id, fork: true }); }}
           onAnyway={() => { const p = elsewhere; setElsewhere(null); start(p.agent, { cwd: p.cwd, resumeId: p.id }); }} />
       )}
       {cloudTask && <CloudTask task={cloudTask} onPickFolder={() => window.agents.pickFolder()} onClose={() => setCloudTask(null)} />}
