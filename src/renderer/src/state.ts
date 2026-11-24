@@ -141,6 +141,7 @@ export function apply(s: Session, e: AgentEvent): Session {
       return { ...next, status: "idle", running: false };
     }
     case "commands": return { ...s, commands: e.commands };
+    case "limits": return s; // kept by the app-wide usage store, not per session
     case "models":
       // An empty list only updates the current choice (Codex sends this after a change).
       return { ...s, models: e.models.length ? e.models : s.models, model: e.current ?? s.model, effort: e.effort ?? s.effort };

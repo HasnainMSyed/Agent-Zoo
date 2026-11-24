@@ -20,6 +20,7 @@ export type View = "gui" | "terminal";
 interface Sink {
   event(sessionId: string, e: AgentEvent): void;
   termData(sessionId: string, chunk: string): void;
+  limits(patch: Extract<AgentEvent, { kind: "limits" }>["limits"]): void;
 }
 
 interface Entry {
@@ -46,9 +47,13 @@ export class SessionManager {
 
   constructor(private sink: Sink) {}
 
-  create(agent: AgentId, cwd: string): SessionInfo {
+  /** Starts a session; `resumeId` reopens a conversation the agent saved earlier. */
+  create(agent: AgentId, cwd: string, resumeId?: string): SessionInfo {
     const info: SessionInfo = { id: randomUUID(), agent, cwd, title: basename(cwd) };
-    const entry: Entry = { info, view: "gui", gen: 0, hadTurn: false, usedTerminal: false, running: false, nativeId: agent === "claude" ? randomUUID() : undefined };
+    const entry: Entry = {
+      info, view: "gui", gen: 0, hadTurn: Boolean(resumeId), usedTerminal: false, running: false,
+      nativeId: resumeId ?? (agent === "claude" ? randomUUID() : undefined),
+    };
     this.sessions.set(info.id, entry);
     this.startGui(entry);
     return info;
@@ -60,6 +65,7 @@ export class SessionManager {
       if (gen !== entry.gen) return;
       if (e.kind === "session.started" && entry.info.agent !== "claude") entry.nativeId = e.sessionId;
       if (e.kind === "user.message") entry.hadTurn = true;
+      if (e.kind === "limits") this.sink.limits(e.limits);
       if (e.kind === "turn.started") entry.running = true;
       if (e.kind === "turn.done" || e.kind === "exited") entry.running = false;
       this.sink.event(entry.info.id, e);

@@ -3,15 +3,26 @@ import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import type { AgentId, SessionCommand } from "@shared/events";
 import { SessionManager } from "./session-manager";
+import { UsageStore } from "./usage-store";
+import { pastSessions } from "./history-index";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
 if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath("temp"), `agent-zoo-test-${process.pid}`));
 
 let win: BrowserWindow | null = null;
+let usage: UsageStore | undefined; // created once the app is ready (it needs the data folder)
 const manager = new SessionManager({
   event: (sessionId, event) => win?.webContents.send("session:event", sessionId, event),
   termData: (sessionId, chunk) => win?.webContents.send("term:data", sessionId, chunk),
+  limits: (patch) => usage?.update(patch),
 });
+
+/** A Claude API endpoint other than Anthropic's (e.g. a proxy) is worth showing next to billing. */
+function claudeEndpoint(): string | undefined {
+  const url = process.env.ANTHROPIC_BASE_URL;
+  if (!url) return undefined;
+  try { return new URL(url).host; } catch { return url; }
+}
 
 function createWindow() {
   // Screenshot runs render off-screen, so test windows never appear on (or take clicks from) the desktop.
@@ -47,7 +58,9 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string) => manager.create(agent, cwd));
+ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string, resumeId?: string) => manager.create(agent, cwd, resumeId));
+ipcMain.handle("usage:get", () => usage?.all() ?? {});
+ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));
 ipcMain.handle("session:close", (_e, id: string) => manager.close(id));
 ipcMain.handle("session:view", (_e, id: string, view: "gui" | "terminal", cols?: number, rows?: number, typeOnOpen?: string) => manager.setView(id, view, cols, rows, typeOnOpen));
@@ -70,6 +83,11 @@ ipcMain.handle("app:info", () => ({
   autoType: process.env.AGENTS_GUI_SCREENSHOT ? process.env.AGENTS_GUI_AUTOTYPE ?? null : null,
 }));
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  usage = new UsageStore((all) => win?.webContents.send("usage:update", all));
+  const endpoint = claudeEndpoint();
+  if (endpoint) usage.update({ agent: "claude", endpoint });
+  createWindow();
+});
 app.on("window-all-closed", () => { manager.closeAll(); app.quit(); });
 app.on("before-quit", () => manager.closeAll());

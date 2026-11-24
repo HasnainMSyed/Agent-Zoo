@@ -6,6 +6,9 @@ import { packFor } from "./mascots";
 import { Mascot, mascotLabel } from "./components/Mascot";
 import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
+import { HomeScreen } from "./components/HomeScreen";
+import { UsageDetails } from "./components/Usage";
+import type { PastSession, UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
@@ -57,7 +60,21 @@ export function App() {
   const [sessions, setSessions] = useState<Record<string, Session>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
+  const [home, setHome] = useState("");
   const [startError, setStartError] = useState("");
+  const [past, setPast] = useState<PastSession[]>([]);
+  const [pastLoading, setPastLoading] = useState(true);
+  const [usage, setUsage] = useState<Partial<Record<AgentId, UsageLimits>>>({});
+  const [lastAgent, setLastAgent] = usePersisted<AgentId>("zoo.lastAgent", "claude");
+  const refreshPast = useCallback((fresh = false) => {
+    setPastLoading(true);
+    window.agents.pastSessions(fresh).then(setPast).catch(() => {}).finally(() => setPastLoading(false));
+  }, []);
+  useEffect(() => {
+    refreshPast();
+    window.agents.usage().then(setUsage).catch(() => {});
+    return window.agents.onUsage(setUsage);
+  }, [refreshPast]);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
@@ -66,22 +83,24 @@ export function App() {
   const autoView = useRef<"terminal" | null>(null);
   const autoPrompt = useRef<string | null>(null);
   const autoType = useRef<string | null>(null);
-  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; autoType.current = i.autoType; }); }, []);
+  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setHome(i.home); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; autoType.current = i.autoType; }); }, []);
   useEffect(() => window.agents.onEvent((id, e) => {
     setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, e) } : prev));
   }), []);
 
-  const start = useCallback(async (agent: AgentId) => {
+  const start = useCallback(async (agent: AgentId, opts: { cwd?: string; prompt?: string; resumeId?: string } = {}) => {
     setStartError("");
     try {
-      const info = await window.agents.createSession(agent, cwd);
+      const info = await window.agents.createSession(agent, opts.cwd ?? cwd, opts.resumeId);
       setSessions((prev) => ({ ...prev, [info.id]: newSession(info) }));
       setActiveId(info.id);
+      setLastAgent(agent);
+      if (opts.prompt) setTimeout(() => window.agents.command(info.id, { kind: "send", text: opts.prompt! }), 300);
       const prompt = autoPrompt.current;
       if (prompt) { autoPrompt.current = null; setTimeout(() => window.agents.command(info.id, { kind: "send", text: prompt }), 800); }
       else if (autoView.current) { autoView.current = null; setTimeout(() => window.agents.setView(info.id, "terminal"), 1500); }
     } catch (err) { setStartError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err)); }
-  }, [cwd]);
+  }, [cwd, setLastAgent]);
 
   useEffect(() => { if (autoStart && cwd) { const a = autoStart; setAutoStart(null); start(a); } }, [autoStart, cwd, start]);
 
@@ -118,27 +137,23 @@ export function App() {
   };
 
   const list = Object.values(sessions);
-  const empty = (
+  const empty = active ? (
     <div className="empty-state">
-      {active && <Mascot pack={pack} state="idle" size={120} />}
-      <h1>{active ? "What should we work on?" : "Start a session"}</h1>
-      {!active && <>
-        <div className="folder"><span className="muted">Folder</span><code>{cwd || "…"}</code><button className="btn-secondary" onClick={async () => { const p = await window.agents.pickFolder(); if (p) setCwd(p); }}>Change</button></div>
-        <div className="agent-picker">
-          {(["claude", "codex", "grok"] as const).map((a) => {
-            const ready = true;
-            return (
-              <button key={a} className="agent-card" data-skin={a} disabled={!ready || !cwd} onClick={() => start(a)}>
-                <Mascot pack={packFor(a)} state="idle" size={72} />
-                <strong>{AGENT_NAMES[a]}</strong>
-                <span>{ready ? "Start session" : "Coming in Phase 3"}</span>
-              </button>
-            );
-          })}
-        </div>
-        {startError && <div className="error-banner" role="alert">{startError}</div>}
-      </>}
+      <Mascot pack={pack} state="idle" size={120} />
+      <h1>What should we work on?</h1>
     </div>
+  ) : (
+    <>
+      <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={lastAgent}
+        onOpenFolder={() => window.agents.pickFolder()}
+        onStart={(a, folder, prompt) => { start(a, { cwd: folder, prompt: prompt || undefined }); }}
+        onResume={(ps) => {
+          // Already open? Just switch to it.
+          const open = list.find((x) => x.info.agent === ps.agent && x.title && x.info.cwd === ps.cwd && x.title === ps.title);
+          if (open) setActiveId(open.info.id); else start(ps.agent, { cwd: ps.cwd, resumeId: ps.id });
+        }} />
+      {startError && <div className="error-banner home-error" role="alert">{startError}</div>}
+    </>
   );
 
   // Sessions grouped by project folder, in the order the folders were first used.
@@ -215,7 +230,7 @@ export function App() {
           </header>
         )}
         {active?.view === "terminal" ? <TerminalView key={active.info.id} sessionId={active.info.id} /> : <>
-        <Transcript items={active?.items ?? []} onDecide={decide} empty={empty} />
+        {active ? <Transcript items={active.items} onDecide={decide} empty={empty} /> : <div className="home-scroll">{empty}</div>}
         {active && (
           <Composer running={active.running} disabled={active.exited} onSend={send} onStop={stop}
             commands={active.commands} models={active.models} model={active.model} effort={active.effort}
@@ -234,6 +249,10 @@ export function App() {
       {active && layout.right && (
         <aside className="rail">
           <div className="rail-top"><button className="icon-btn" onClick={() => setLayout({ right: false })} aria-label="Hide the details panel" title="Hide the details panel">»</button></div>
+          <RailSection title="Usage" id="usage" folded={folded} setFolded={setFolded}
+            summary={usage[active.info.agent]?.windows[0] ? `${usage[active.info.agent]!.windows[0]!.usedPct}%` : undefined}>
+            <UsageDetails agent={active.info.agent} usage={usage[active.info.agent]} sessionCost={active.usage?.costUsd} />
+          </RailSection>
           <RailSection title="Plan" id="plan" folded={folded} setFolded={setFolded}
             summary={active.plan.length ? `${active.plan.filter((p) => p.status === "done").length}/${active.plan.length}` : undefined}>
             {active.plan.length

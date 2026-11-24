@@ -1,6 +1,6 @@
 // The normalized event model every agent adapter emits. See PLAN.md §3.
 
-import type { ModelOption, SlashCommand } from "./commands";
+import type { ModelOption, SlashCommand, UsageLimits } from "./commands";
 
 export type AgentId = "claude" | "codex" | "grok";
 export type ToolKind = "shell" | "edit" | "read" | "search" | "web" | "subagent" | "todo" | "mcp" | "other";
@@ -41,6 +41,8 @@ export type AgentEvent =
   | { kind: "turn.done"; ok: boolean; durationMs?: number; error?: string }
   | { kind: "error"; message: string }
   | { kind: "commands"; commands: SlashCommand[] }
+  /** Partial: fields present replace the cached ones; windows replace by label. */
+  | { kind: "limits"; limits: Partial<UsageLimits> & { agent: UsageLimits["agent"] } }
   | { kind: "models"; models: ModelOption[]; current?: string; effort?: string }
   | { kind: "view"; view: "gui" | "terminal" }
   /** The full saved conversation; replaces the Chat transcript so it matches the agent exactly. */

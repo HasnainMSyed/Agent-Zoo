@@ -18,6 +18,24 @@ export function parseUnifiedDiff(diff: string): DiffHunk[] {
   return hunks;
 }
 
+const PLAN_NAMES: Record<string, string> = { free: "ChatGPT Free", plus: "ChatGPT Plus", pro: "ChatGPT Pro", team: "ChatGPT Team", business: "ChatGPT Business", enterprise: "ChatGPT Enterprise", edu: "ChatGPT Edu" };
+
+/** Codex reports a primary (5-hour) and secondary (weekly) window as percent used. */
+export function codexLimits(r: Json | undefined): AgentEvent[] {
+  if (!r) return [];
+  const label = (mins: number | undefined) => (mins === 300 ? "5-hour" : mins === 10080 ? "Weekly" : mins ? `${Math.round(mins / 60)}-hour` : "Limit");
+  const windows = [r.primary, r.secondary].filter(Boolean).map((w: Json) => ({ label: label(w.windowDurationMins), usedPct: Math.round(w.usedPercent ?? 0), resetsAt: w.resetsAt }));
+  const plan = r.planType ? PLAN_NAMES[r.planType] ?? r.planType : undefined;
+  return [{ kind: "limits", limits: { agent: "codex", windows, ...(plan ? { plan } : {}) } }];
+}
+
+/** authMode "chatgpt" means a ChatGPT subscription; "apikey" means an OpenAI API key. */
+export function codexAccount(p: Json): AgentEvent[] {
+  const billing = p.authMode === "chatgpt" ? "subscription" as const : p.authMode === "apikey" ? "api_key" as const : p.authMode ? "other" as const : undefined;
+  const plan = p.planType ? PLAN_NAMES[p.planType] ?? p.planType : undefined;
+  return [{ kind: "limits", limits: { agent: "codex", ...(billing ? { billing } : {}), ...(billing === "api_key" ? { keySource: "OpenAI API key" } : {}), ...(plan ? { plan } : {}) } }];
+}
+
 /** "/bin/bash -lc \"cmd\"" -> "cmd", preferring Codex's own parsed command when present. */
 function displayCommand(item: Json): string {
   const parsed = item.commandActions?.[0]?.command;
@@ -91,6 +109,8 @@ export class CodexMapper {
         this.contextWindow = u.modelContextWindow ?? this.contextWindow;
         return [{ kind: "usage", inputTokens: u.total?.inputTokens ?? 0, outputTokens: u.total?.outputTokens ?? 0, contextWindow: this.contextWindow, contextUsed: u.last?.inputTokens }];
       }
+      case "account/rateLimits/updated": return codexLimits(p.rateLimits);
+      case "account/updated": return codexAccount(p);
       case "hook/started": return [{ kind: "hook", name: p.run?.eventName ?? "hook", phase: "started" }];
       case "hook/completed": return [{ kind: "hook", name: p.run?.eventName ?? "hook", phase: "finished", ok: p.run?.status === "completed" }];
       case "error": return p.willRetry ? [] : [{ kind: "error", message: p.error?.message ?? "Codex reported an error." }];

@@ -9,6 +9,20 @@
 export type CommandRun = "send" | "action" | "model" | "effort" | "terminal";
 
 export interface SlashCommand { name: string; description: string; hint?: string; run: CommandRun }
+
+/** Plan usage and billing for one agent, as last reported by that agent. */
+export interface UsageLimits {
+  agent: "claude" | "codex" | "grok";
+  plan?: string;                 // e.g. "Claude Pro", "ChatGPT Plus"
+  billing?: "subscription" | "api_key" | "other";
+  keySource?: string;            // where an API key comes from (never the key itself)
+  endpoint?: string;             // a non-default API host, e.g. a third-party proxy
+  windows: { label: string; usedPct: number; resetsAt?: number }[]; // resetsAt in epoch seconds
+  updatedAt: number;             // epoch ms
+}
+
+/** A conversation saved by an agent, for the home screen and sidebar. */
+export interface PastSession { agent: "claude" | "codex" | "grok"; id: string; cwd: string; title: string; updatedAt: number }
 export interface ModelOption { id: string; label: string; description?: string; efforts?: string[] }
 
 /** Menu-style commands that only their terminal interface can show. */

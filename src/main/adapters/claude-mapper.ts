@@ -89,6 +89,7 @@ export class ClaudeMapper {
     const parent: string | undefined = msg.parent_tool_use_id ?? undefined;
     switch (msg.type) {
       case "control_response": return this.initialized(msg.response?.response);
+      case "rate_limit_event": return claudeLimits(msg.rate_limit_info);
       case "system": return [...(msg.subtype === "init" && Array.isArray(msg.terminal_slash_commands) ? this.initTerminal(msg.terminal_slash_commands) : []), ...this.system(msg)];
       case "stream_event": return this.stream(msg.event, parent);
       case "assistant": return this.assistant(msg, parent);
@@ -109,7 +110,11 @@ export class ClaudeMapper {
     const models: ModelOption[] = (r.models ?? []).map((m: Json) => ({
       id: m.value, label: m.displayName ?? m.value, description: m.description, efforts: m.supportsEffort ? m.supportedEffortLevels : undefined,
     }));
-    return [this.commandsEvent(), { kind: "models", models }];
+    const a = r.account ?? {};
+    const account: AgentEvent[] = a.subscriptionType || a.apiProvider
+      ? [{ kind: "limits", limits: { agent: "claude", plan: a.subscriptionType, endpoint: a.apiProvider && a.apiProvider !== "firstParty" ? a.apiProvider : undefined } }]
+      : [];
+    return [this.commandsEvent(), { kind: "models", models }, ...account];
   }
 
   private initTerminal(names: string[]): AgentEvent[] {
@@ -119,7 +124,13 @@ export class ClaudeMapper {
 
   private system(msg: Json): AgentEvent[] {
     if (msg.subtype === "init") {
-      return [{ kind: "session.started", agent: "claude", sessionId: msg.session_id, model: msg.model, cwd: msg.cwd }];
+      // apiKeySource "none" means the session runs on a signed-in subscription, not an API key.
+      const keySource: string | undefined = msg.apiKeySource;
+      const billing = !keySource || keySource === "none" ? "subscription" : "api_key";
+      return [
+        { kind: "session.started", agent: "claude", sessionId: msg.session_id, model: msg.model, cwd: msg.cwd },
+        { kind: "limits", limits: { agent: "claude", billing, keySource: billing === "api_key" ? keySource : undefined } },
+      ];
     }
     if (msg.subtype === "hook_started") return [{ kind: "hook", name: msg.hook_name ?? msg.hook_event, phase: "started" }];
     if (msg.subtype === "hook_response") {
@@ -230,6 +241,16 @@ export class ClaudeMapper {
       { kind: "turn.done", ok: msg.subtype === "success" && !msg.is_error, durationMs: msg.duration_ms, error: msg.is_error ? String(msg.result ?? msg.subtype) : undefined },
     ];
   }
+}
+
+/** Claude's rate_limit_event carries both plan windows as fractions used. */
+export function claudeLimits(info: Json | undefined): AgentEvent[] {
+  const w = info?.unifiedWindows;
+  if (!w) return [];
+  const windows = [["five_hour", "5-hour"], ["seven_day", "Weekly"]]
+    .filter(([key]) => w[key!])
+    .map(([key, label]) => ({ label: label!, usedPct: Math.round((w[key!].utilization ?? 0) * 100), resetsAt: w[key!].resetsAt }));
+  return windows.length ? [{ kind: "limits", limits: { agent: "claude", windows } }] : [];
 }
 
 /** Rebuilds a conversation from Claude's saved session file (~/.claude/projects/<folder>/<id>.jsonl),
