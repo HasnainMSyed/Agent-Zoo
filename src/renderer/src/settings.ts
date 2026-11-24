@@ -14,6 +14,8 @@ export interface Settings {
   defaultAgent: "last" | AgentId;
   claudeMode: string;                  // permission mode new Claude sessions start in
   reopenLast: boolean;                 // at launch, reopen the session you were last in
+  alerts: "background" | "always" | "off"; // desktop alerts when an agent finishes or needs you
+  sound: "off" | "chime" | "pop" | "bell";  // played with an alert
 }
 
 export const AGENT_COLOR_DEFAULTS: Record<AgentId, string> = { claude: "#e07b55", codex: "#19c37d", grok: "#9b7bff" };
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   displayName: "", theme: "system", skin: "agent", agentColors: AGENT_COLOR_DEFAULTS,
   textSize: "default", reduceMotion: false, showMascots: true, mascots: {}, defaultAgent: "last", claudeMode: "default",
   reopenLast: true,
+  alerts: "background", sound: "off",
 };
 
 const KEY = "zoo.settings";

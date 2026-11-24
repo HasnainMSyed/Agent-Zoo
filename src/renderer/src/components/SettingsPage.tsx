@@ -1,6 +1,7 @@
 // The Settings page: a local profile, each agent's sign-in, appearance, mascots and defaults.
 // Nothing here leaves the computer; sign-in and sign-out run each agent's own command.
 
+import { desktopAlert, playSound } from "../alerts";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentId } from "@shared/events";
 import { PERMISSION_MODES, type AccountInfo, type UsageLimits } from "@shared/commands";
@@ -15,7 +16,7 @@ const AGENTS: AgentId[] = ["claude", "codex", "grok"];
 /** Where "Buy me a coffee" goes (Buy Me a Coffee, Ko-fi or GitHub Sponsors). Empty until there's a page. */
 const COFFEE_URL = "";
 
-const SECTIONS = [["profile", "Profile"], ["accounts", "Agents & accounts"], ["appearance", "Appearance"], ["mascots", "Mascots"], ["defaults", "Sessions"], ["about", "About"], ["coffee", "Coffee"]] as const;
+const SECTIONS = [["profile", "Profile"], ["accounts", "Agents & accounts"], ["appearance", "Appearance"], ["mascots", "Mascots"], ["defaults", "Sessions"], ["alerts", "Alerts"], ["about", "About"], ["coffee", "Coffee"]] as const;
 
 export const initials = (name: string) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
 
@@ -157,6 +158,22 @@ export function SettingsPage({ settings, onChange, user, version, usage, onClose
             <select className="text-input" value={settings.claudeMode} onChange={(e) => set("claudeMode", e.target.value)}>
               {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
+          </Row>
+        </section>
+
+        <section id="set-alerts" className="set-card">
+          <h2>Alerts</h2>
+          <Row title="Desktop alerts" hint="When an agent finishes, stops with an error, or needs your answer">
+            <Choice label="Desktop alerts" value={settings.alerts} onChange={(v) => set("alerts", v)} options={[["background", "When I'm away"], ["always", "Always"], ["off", "Off"]]} />
+          </Row>
+          <Row title="Sound" hint="Rises when an agent needs you, falls on an error">
+            <div className="sound-row">
+              <Choice label="Sound" value={settings.sound} onChange={(v) => { set("sound", v); playSound(v); }} options={[["off", "Off"], ["chime", "Chime"], ["pop", "Pop"], ["bell", "Bell"]]} />
+              {settings.sound !== "off" && <button className="btn-small" onClick={() => { playSound(settings.sound, "done"); setTimeout(() => playSound(settings.sound, "input"), 900); }}>Play</button>}
+            </div>
+          </Row>
+          <Row title="Try it" hint="Shows a desktop alert now (your system may ask to allow them)">
+            <button className="btn-small" onClick={() => { desktopAlert("done", "Claude Code", "This is what an alert looks like.", () => {}); playSound(settings.sound); }}>Send a test alert</button>
           </Row>
         </section>
 

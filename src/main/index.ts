@@ -197,6 +197,7 @@ ipcMain.handle("session:takeOver", async (_e, sessionId: string, now?: boolean) 
 });
 ipcMain.handle("session:takeOverCancel", (_e, sessionId: string) => { const j = takeovers.get(sessionId); if (j) j.cancelled = true; });
 ipcMain.handle("update:get", () => updateState());
+ipcMain.handle("app:focus", () => { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); });
 ipcMain.handle("update:install", () => installUpdate());
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));

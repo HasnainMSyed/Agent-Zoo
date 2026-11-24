@@ -50,6 +50,8 @@ const api = {
     write: (sessionId: string, rel: string, text: string, expectMtime?: number): Promise<{ mtime: number }> => ipcRenderer.invoke("files:write", sessionId, rel, text, expectMtime),
     reveal: (sessionId: string, rel: string): Promise<void> => ipcRenderer.invoke("files:reveal", sessionId, rel),
   },
+  /** Brings the app window forward (clicking a desktop alert). */
+  focusWindow: (): Promise<void> => ipcRenderer.invoke("app:focus"),
   /** Whether Claude Code's voice mode (/voice) is switched on in its settings. */
   claudeVoiceOn: (): Promise<boolean> => ipcRenderer.invoke("claude:voiceOn"),
   codexDictationReady: (): Promise<void> => ipcRenderer.invoke("codex:dictationReady"),

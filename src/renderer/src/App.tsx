@@ -28,6 +28,7 @@ import { applySettings, loadSettings, saveSettings, type Settings } from "./sett
 import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 import { VOICE } from "./voice";
+import { desktopAlert, playSound, type AlertKind } from "./alerts";
 import logoUrl from "./assets/prompt-habitat-logo.png";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
@@ -310,6 +311,29 @@ export function App() {
   };
 
   const list = Object.values(sessions);
+
+  // Alerts: an agent finished, stopped with an error, or is waiting on you. "When I'm away" means the
+  // window isn't focused, or you're looking at a different session.
+  const lastState = useRef(new Map<string, { running: boolean; status: string }>());
+  useEffect(() => {
+    for (const s of list) {
+      const prev = lastState.current.get(s.info.id);
+      lastState.current.set(s.info.id, { running: s.running, status: s.status });
+      if (!prev || s.view !== "gui" || settings.alerts === "off") continue;
+      const kind: AlertKind | null = s.status === "waiting" && prev.status !== "waiting" ? "input"
+        : prev.running && !s.running && !s.exited ? (s.status === "error" ? "error" : "done") : null;
+      if (!kind) continue;
+      const away = !document.hasFocus() || s.info.id !== activeId || showSettings;
+      if (settings.alerts === "background" && !away) continue;
+      playSound(settings.sound, kind);
+      const id = s.info.id;
+      desktopAlert(kind, AGENT_NAMES[s.info.agent], `${sessionLabel(s)} · ${s.info.cwd.split("/").filter(Boolean).pop() ?? s.info.cwd}`, () => {
+        window.agents.focusWindow();
+        setActiveId(id); setShowSettings(false);
+      });
+    }
+    for (const id of [...lastState.current.keys()]) if (!sessions[id]) lastState.current.delete(id);
+  }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Every session opened here joins the sidebar's kept list (once its agent has given it an id).
   useEffect(() => {
