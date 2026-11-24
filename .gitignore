@@ -1,0 +1,8 @@
+design/local/
+fixtures/*.ndjson
+node_modules/
+dist/
+out/
+sandbox/
+fixtures/codex-protocol/
+fixtures/*.err

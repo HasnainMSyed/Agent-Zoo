@@ -1,0 +1,7 @@
+{
+  "id": "prompt",
+  "name": "Prompt",
+  "agent": "codex",
+  "description": "A terminal window with a face. The cursor blinks faster while it types.",
+  "version": 1
+}

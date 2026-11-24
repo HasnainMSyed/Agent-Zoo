@@ -1,0 +1,7 @@
+{
+  "id": "inkling",
+  "name": "Inkling",
+  "agent": "claude",
+  "description": "A pixel-art octopus. Its tentacles wiggle faster while a tool runs.",
+  "version": 1
+}
