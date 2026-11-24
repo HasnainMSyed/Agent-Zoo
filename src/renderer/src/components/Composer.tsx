@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { ModelOption, SlashCommand } from "@shared/commands";
 
-const RUN_LABEL: Record<SlashCommand["run"], string | null> = { send: null, action: null, model: "Picker", effort: "Picker", terminal: "Opens in Terminal" };
+const RUN_LABEL: Record<SlashCommand["run"], string | null> = { send: null, action: null, model: "Picker", effort: "Picker", terminal: "Opens in Terminal", panel: "Panel" };
 
 /** Ranks commands for the "/" menu: names that start with the query first, then ones that contain it. */
 function matchCommands(commands: SlashCommand[], query: string): SlashCommand[] {
@@ -43,10 +43,12 @@ function ModelPicker({ models, model, effort, focus, onPick, onClose }: {
   );
 }
 
-export function Composer({ running, disabled, onSend, onStop, mascot, status, commands, models, model, effort, onCommand, onPickModel }: {
+export function Composer({ running, disabled, onSend, onStop, mascot, status, commands, models, model, effort, onCommand, onPickModel, panel, modeLabel, onMode }: {
   running: boolean; disabled?: boolean; onSend: (text: string) => void; onStop: () => void; mascot: ReactNode; status: string;
   commands: SlashCommand[]; models: ModelOption[]; model?: string; effort?: string;
   onCommand: (cmd: SlashCommand, args: string) => void; onPickModel: (model?: string, effort?: string) => void;
+  /** An open panel (Claude's /mcp, /status, /context, mode), drawn above the input box. */
+  panel?: ReactNode; modeLabel?: string; onMode?: () => void;
 }) {
   const [text, setText] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -75,7 +77,7 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
 
   const choose = (cmd: SlashCommand) => {
     // Commands that take arguments wait for them; the rest run straight away.
-    if (cmd.hint && cmd.run !== "model" && cmd.run !== "effort" && cmd.run !== "terminal") { setValue(`/${cmd.name} `); ref.current?.focus(); return; }
+    if (cmd.hint && cmd.run !== "model" && cmd.run !== "effort" && cmd.run !== "terminal" && cmd.run !== "panel") { setValue(`/${cmd.name} `); ref.current?.focus(); return; }
     run(cmd, "");
   };
 
@@ -84,7 +86,7 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
     if (!t || disabled) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(t);
     const cmd = m && commands.find((c) => c.name === m[1]);
-    if (cmd) { if (!running || cmd.run === "terminal" || cmd.run === "model" || cmd.run === "effort") run(cmd, m![2]!.trim()); return; }
+    if (cmd) { if (!running || cmd.run === "terminal" || cmd.run === "panel" || cmd.run === "model" || cmd.run === "effort") run(cmd, m![2]!.trim()); return; }
     if (running) return;
     onSend(t);
     setValue("");
@@ -108,6 +110,7 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
           ))}
         </div>
       )}
+      {!picker && panel}
       {picker && <ModelPicker models={models} model={model} effort={effort} focus={picker} onClose={() => setPicker(null)} onPick={(m, e) => { onPickModel(m, e); setPicker(null); }} />}
       <div className="composer-box">
         <textarea id="prompt" ref={ref} rows={1} value={text} disabled={disabled}
@@ -133,6 +136,11 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
         <button className="model-chip" onClick={() => setPicker(picker === "model" ? null : "model")} title="Choose the model and effort">
           {modelLabel ?? "Model"}{effort ? ` · ${effort}` : ""}<span aria-hidden="true"> ▾</span>
         </button>
+        {modeLabel && onMode && (
+          <button className="model-chip" onClick={onMode} title="Choose what Claude may do without asking">
+            {modeLabel}<span aria-hidden="true"> ▾</span>
+          </button>
+        )}
         <span className="composer-hint">Enter to send · Shift+Enter for a new line · / for commands{running ? " · Esc to stop" : ""}</span>
       </div>
     </div>

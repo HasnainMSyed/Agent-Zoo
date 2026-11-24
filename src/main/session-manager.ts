@@ -14,6 +14,7 @@ import { ReplaySession } from "./adapters/replay";
 import { CodexSession } from "./adapters/codex";
 import { GrokSession } from "./adapters/grok";
 import { TerminalSession } from "./terminal";
+import { CLAUDE_QUERIES } from "@shared/commands";
 
 export type View = "gui" | "terminal";
 
@@ -35,6 +36,7 @@ interface Entry {
   running: boolean;
   model?: string;  // chosen in the picker; Claude and Grok apply it by restarting on the same conversation
   effort?: string;
+  permissionMode?: string; // Claude's, kept so a restart or the Terminal view keeps the same mode
   pendingType?: () => void; // types a queued command once the terminal interface first draws
 }
 
@@ -66,6 +68,7 @@ export class SessionManager {
       if (e.kind === "session.started" && entry.info.agent !== "claude") entry.nativeId = e.sessionId;
       if (e.kind === "user.message") entry.hadTurn = true;
       if (e.kind === "limits") this.sink.limits(e.limits);
+      if (e.kind === "mode") entry.permissionMode = e.mode;
       if (e.kind === "turn.started") entry.running = true;
       if (e.kind === "turn.done" || e.kind === "exited") entry.running = false;
       this.sink.event(entry.info.id, e);
@@ -85,7 +88,7 @@ export class SessionManager {
         try { emit({ kind: "history", events: claudeHistory(readFileSync(claudeFile(cwd, entry.nativeId!), "utf8")) }); }
         catch (err) { emit({ kind: "error", message: `Couldn't read the saved conversation: ${(err as Error).message}` }); }
       }
-      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume, model, effort });
+      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume, model, effort, permissionMode: entry.permissionMode });
       return;
     }
     // Codex and Grok: continue the known conversation, or the newest one if it began in the terminal.
@@ -112,7 +115,8 @@ export class SessionManager {
     const id = entry.nativeId;
     const { model, effort } = entry;
     if (agent === "claude") {
-      const flags = [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : [])];
+      const mode = entry.permissionMode && entry.permissionMode !== "default" ? ["--permission-mode", entry.permissionMode] : [];
+      const flags = [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...mode];
       return ["claude", [...(claudeHasHistory(cwd, id!) ? ["--resume", id!] : ["--session-id", id!]), ...flags]];
     }
     const known = id && entry.hadTurn;
@@ -189,6 +193,23 @@ export class SessionManager {
     else if (cmd.kind === "interrupt") s.agent.interrupt();
     else if (cmd.kind === "slash") s.agent.slash(cmd.name, cmd.args);
     else if (cmd.kind === "setModel") this.setModel(s, cmd.model, cmd.effort);
+  }
+
+  /** A panel's request to the agent (Claude's control protocol); only known, safe requests pass. */
+  async query(id: string, subtype: string, payload: Record<string, unknown> = {}): Promise<unknown> {
+    const s = this.sessions.get(id);
+    if (!s) throw new Error("That session has ended. Start a new one.");
+    if (!(CLAUDE_QUERIES as readonly string[]).includes(subtype)) throw new Error(`Unknown request: ${subtype}`);
+    if (!s.agent) throw new Error("This session is in the Terminal view. Switch back to Chat to use this panel.");
+    if (!s.agent.query) throw new Error("This agent doesn't offer that panel.");
+    const gen = s.gen;
+    const result = await s.agent.query(subtype, payload);
+    if (subtype === "set_permission_mode" && gen === s.gen) {
+      const mode = String((result as { mode?: string })?.mode ?? payload.mode);
+      s.permissionMode = mode;
+      this.sink.event(id, { kind: "mode", mode });
+    }
+    return result;
   }
 
   close(id: string) {

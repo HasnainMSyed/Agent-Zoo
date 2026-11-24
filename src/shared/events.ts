@@ -48,6 +48,8 @@ export type AgentEvent =
   /** The full saved conversation; replaces the Chat transcript so it matches the agent exactly. */
   | { kind: "history"; events: AgentEvent[] }
   | { kind: "notice"; text: string }
+  /** Claude's permission mode (default, acceptEdits, plan, ...), when it starts or changes. */
+  | { kind: "mode"; mode: string }
   | { kind: "exited"; code: number | null };
 
 /** Commands the UI sends to an agent session. */

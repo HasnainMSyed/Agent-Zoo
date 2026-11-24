@@ -62,6 +62,7 @@ ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string, resumeId?: st
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));
+ipcMain.handle("session:query", (_e, id: string, subtype: string, payload?: Record<string, unknown>) => manager.query(id, subtype, payload));
 ipcMain.handle("session:close", (_e, id: string) => manager.close(id));
 ipcMain.handle("session:view", (_e, id: string, view: "gui" | "terminal", cols?: number, rows?: number, typeOnOpen?: string) => manager.setView(id, view, cols, rows, typeOnOpen));
 ipcMain.on("term:input", (_e, id: string, data: string) => manager.termInput(id, data));

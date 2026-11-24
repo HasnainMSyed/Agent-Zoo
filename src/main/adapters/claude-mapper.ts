@@ -114,7 +114,8 @@ export class ClaudeMapper {
     const account: AgentEvent[] = a.subscriptionType || a.apiProvider
       ? [{ kind: "limits", limits: { agent: "claude", plan: a.subscriptionType, endpoint: a.apiProvider && a.apiProvider !== "firstParty" ? a.apiProvider : undefined } }]
       : [];
-    return [this.commandsEvent(), { kind: "models", models }, ...account];
+    const mode: AgentEvent[] = typeof r.current_permission_mode === "string" ? [{ kind: "mode", mode: r.current_permission_mode }] : [];
+    return [this.commandsEvent(), { kind: "models", models }, ...account, ...mode];
   }
 
   private initTerminal(names: string[]): AgentEvent[] {
@@ -130,8 +131,11 @@ export class ClaudeMapper {
       return [
         { kind: "session.started", agent: "claude", sessionId: msg.session_id, model: msg.model, cwd: msg.cwd },
         { kind: "limits", limits: { agent: "claude", billing, keySource: billing === "api_key" ? keySource : undefined } },
+        ...(typeof msg.permissionMode === "string" ? [{ kind: "mode" as const, mode: msg.permissionMode }] : []),
       ];
     }
+    // Status updates carry the permission mode when it changes (e.g. after leaving plan mode).
+    if (msg.subtype === "status" && typeof msg.permissionMode === "string") return [{ kind: "mode", mode: msg.permissionMode }];
     if (msg.subtype === "hook_started") return [{ kind: "hook", name: msg.hook_name ?? msg.hook_event, phase: "started" }];
     if (msg.subtype === "hook_response") {
       return [{ kind: "hook", name: msg.hook_name ?? msg.hook_event, phase: "finished", ok: msg.outcome ? msg.outcome === "success" : msg.exit_code ? msg.exit_code === 0 : undefined }];
@@ -253,6 +257,26 @@ export function claudeLimits(info: Json | undefined): AgentEvent[] {
   return windows.length ? [{ kind: "limits", limits: { agent: "claude", windows } }] : [];
 }
 
+/** Claude's get_usage reply: plan windows as percentages used, with ISO reset times. */
+export function claudeUsageLimits(r: Json | undefined): AgentEvent[] {
+  const rl = r?.rate_limits;
+  if (!rl) return [];
+  const toSec = (iso: unknown) => (typeof iso === "string" && !Number.isNaN(Date.parse(iso)) ? Math.round(Date.parse(iso) / 1000) : undefined);
+  const windows = [["five_hour", "5-hour"], ["seven_day", "Weekly"]]
+    .filter(([key]) => rl[key!] && typeof rl[key!].utilization === "number")
+    .map(([key, label]) => ({ label: label!, usedPct: Math.round(rl[key!].utilization), resetsAt: toSec(rl[key!].resets_at) }));
+  return windows.length ? [{ kind: "limits", limits: { agent: "claude", windows } }] : [];
+}
+
+/** The current model from a get_status reply (its "Model" row), so the chip is right before the first message. */
+export function claudeStatusModel(r: Json | undefined): string | undefined {
+  for (const sec of Array.isArray(r?.sections) ? r!.sections : []) {
+    const row = (sec.rows ?? []).find((x: Json) => x.label === "Model");
+    if (row && typeof row.value === "string") return row.value.split(/\s/)[0];
+  }
+  return undefined;
+}
+
 /** Rebuilds a conversation from Claude's saved session file (~/.claude/projects/<folder>/<id>.jsonl),
  *  so the Chat view shows everything, including turns taken in the Terminal view. */
 export function claudeHistory(jsonl: string): AgentEvent[] {
@@ -288,4 +312,4 @@ export function claudeHistory(jsonl: string): AgentEvent[] {
 }
 
 export const userMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
-export const controlRequest = (requestId: string, subtype: "initialize" | "interrupt") => ({ type: "control_request", request_id: requestId, request: { subtype } });
+export const controlRequest = (requestId: string, subtype: string, payload: Record<string, unknown> = {}) => ({ type: "control_request", request_id: requestId, request: { ...payload, subtype } });

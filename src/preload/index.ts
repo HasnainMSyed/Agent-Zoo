@@ -12,6 +12,8 @@ const api = {
     return () => { ipcRenderer.removeListener("usage:update", listener); };
   },
   command: (id: string, cmd: SessionCommand): Promise<void> => ipcRenderer.invoke("session:command", id, cmd),
+  /** Data for a panel (Claude's /mcp, /status, /context) or a setting change, straight from the agent. */
+  query: (id: string, subtype: string, payload?: Record<string, unknown>): Promise<any> => ipcRenderer.invoke("session:query", id, subtype, payload),
   closeSession: (id: string): Promise<void> => ipcRenderer.invoke("session:close", id),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:pickFolder"),
   info: (): Promise<{ home: string; cwd: string; autoStart: AgentId | null; autoView: "terminal" | null; autoPrompt: string | null; autoType: string | null }> => ipcRenderer.invoke("app:info"),

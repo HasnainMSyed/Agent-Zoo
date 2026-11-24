@@ -5,8 +5,31 @@
  *  action   - the app calls a protocol method for it (Codex /compact, /new)
  *  model    - opens the model picker
  *  effort   - opens the effort picker
- *  terminal - only exists in the agent's own terminal interface; opens the Terminal view and types it */
-export type CommandRun = "send" | "action" | "model" | "effort" | "terminal";
+ *  terminal - only exists in the agent's own terminal interface; opens the Terminal view and types it
+ *  panel    - the app draws it as a panel from data the agent reports (Claude /mcp, /status, /context) */
+export type CommandRun = "send" | "action" | "model" | "effort" | "terminal" | "panel";
+
+/** Panels the app draws for Claude's menu-style commands. "mode" has no command; the mode chip opens it. */
+export type PanelKind = "mcp" | "status" | "context" | "mode";
+export const CLAUDE_PANELS: Record<"mcp" | "status" | "context", string> = {
+  mcp: "See and manage MCP servers",
+  status: "Show account, model and connection status",
+  context: "See what fills the context window",
+};
+
+/** Requests a panel may send to Claude (its control protocol); anything else is refused. */
+export const CLAUDE_QUERIES = ["mcp_status", "mcp_toggle", "mcp_reconnect", "get_status", "get_context_usage", "get_usage", "set_permission_mode"] as const;
+export type ClaudeQuery = (typeof CLAUDE_QUERIES)[number];
+
+/** Claude's permission modes, in the order Shift+Tab cycles through the common ones. */
+export const PERMISSION_MODES: { id: string; label: string; description: string }[] = [
+  { id: "default", label: "Ask before edits", description: "Asks before editing files or running commands" },
+  { id: "acceptEdits", label: "Accept edits", description: "Edits files without asking; still asks before other commands" },
+  { id: "plan", label: "Plan", description: "Reads and plans only; changes nothing until you approve a plan" },
+  { id: "auto", label: "Auto", description: "Decides for itself which actions are safe to run without asking" },
+  { id: "dontAsk", label: "Don't ask", description: "Denies anything not already allowed, instead of asking" },
+  { id: "bypassPermissions", label: "Bypass permissions", description: "Runs everything without asking. Only for sandboxes you trust" },
+];
 
 export interface SlashCommand { name: string; description: string; hint?: string; run: CommandRun }
 
@@ -68,6 +91,9 @@ export const PICKERS: SlashCommand[] = [
 export function mergeCommands(agent: "claude" | "codex" | "grok", own: SlashCommand[], terminalNames: string[] = []): SlashCommand[] {
   const out = new Map<string, SlashCommand>();
   for (const p of PICKERS) out.set(p.name, p);
+  if (agent === "claude") {
+    for (const [name, description] of Object.entries(CLAUDE_PANELS)) out.set(name, { name, description: own.find((c) => c.name === name)?.description || description, run: "panel" });
+  }
   for (const c of own) if (!out.has(c.name)) out.set(c.name, terminalNames.includes(c.name) ? { ...c, run: "terminal" } : c);
   for (const [name, description] of TERMINAL_ONLY[agent]) if (!out.has(name)) out.set(name, { name, description, run: "terminal" });
   return [...out.values()];

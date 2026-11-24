@@ -65,9 +65,10 @@ async function rpcSession(cmd: string, args: string[], jsonrpc: boolean, run: (r
     else if (m.method) onNote?.(m);
   });
   const rpc = (method: string, params: Json) => new Promise<Json>((resolve, reject) => { const id = next++; calls.set(id, { resolve, reject }); write({ id, method, params }); });
-  const timeout = new Promise<void>((_, reject) => setTimeout(() => reject(new Error("timed out")), 10_000));
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((_, reject) => { timer = setTimeout(() => reject(new Error("timed out")), 10_000); });
   try { await Promise.race([run(rpc, (m, p) => write({ method: m, ...(p ? { params: p } : {}) })), timeout]); }
-  finally { proc.stdin.end(); setTimeout(() => proc.kill("SIGTERM"), 300).unref(); }
+  finally { clearTimeout(timer); proc.stdin.end(); setTimeout(() => proc.kill("SIGTERM"), 300).unref(); }
 }
 
 async function codexSessions(onLimits: (e: AgentEvent[]) => void): Promise<PastSession[]> {

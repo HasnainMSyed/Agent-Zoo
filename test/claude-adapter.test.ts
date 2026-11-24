@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ClaudeMapper } from "../src/main/adapters/claude-mapper";
+import { ClaudeMapper, claudeStatusModel, claudeUsageLimits } from "../src/main/adapters/claude-mapper";
+import { mergeCommands } from "../src/shared/commands";
 import type { AgentEvent } from "../src/shared/events";
 
 /** Replays a recorded fixture; lines may carry a "< " / "> " direction prefix. */
@@ -115,5 +116,43 @@ describe("permission responses", () => {
     const res = m.permissionResponse("r1", "allow_always");
     expect(res.response.response).toEqual({ behavior: "allow", updatedInput: { command: "ls" }, updatedPermissions: [{ type: "addRules" }] });
     expect(m.permissionResponse("r2", "deny").response.response.behavior).toBe("deny");
+  });
+});
+
+describe("menu panels", () => {
+  it("reports the permission mode at start and when it changes", () => {
+    const m = new ClaudeMapper();
+    const start = m.feed({ type: "system", subtype: "init", session_id: "s", model: "x", cwd: "/p", apiKeySource: "none", permissionMode: "default" });
+    expect(start.find((e) => e.kind === "mode")).toEqual({ kind: "mode", mode: "default" });
+    expect(m.feed({ type: "system", subtype: "status", status: null, permissionMode: "plan" })).toEqual([{ kind: "mode", mode: "plan" }]);
+    expect(m.feed({ type: "system", subtype: "status", status: "requesting" })).toEqual([]);
+  });
+
+  it("reads the mode from initialize and the model from get_status", () => {
+    const evs = new ClaudeMapper().feed({ type: "control_response", response: { response: { commands: [], models: [], current_permission_mode: "acceptEdits" } } });
+    expect(evs).toContainEqual({ kind: "mode", mode: "acceptEdits" });
+    expect(claudeStatusModel({ sections: [{ title: "Environment", rows: [{ label: "Model", value: "claude-opus-5-5" }] }] })).toBe("claude-opus-5-5");
+    expect(claudeStatusModel({})).toBeUndefined();
+  });
+
+  it("turns get_usage into plan limit windows", () => {
+    const evs = claudeUsageLimits({ rate_limits: {
+      five_hour: { utilization: 3, resets_at: "2026-11-24T20:09:59.829352+00:00" },
+      seven_day: { utilization: 62.4, resets_at: "2026-11-25T18:59:59+00:00" },
+      seven_day_opus: null,
+    } });
+    expect(evs).toEqual([{ kind: "limits", limits: { agent: "claude", windows: [
+      { label: "5-hour", usedPct: 3, resetsAt: Math.round(Date.parse("2026-11-24T20:09:59.829Z") / 1000) },
+      { label: "Weekly", usedPct: 62, resetsAt: Math.round(Date.parse("2026-11-25T18:59:59Z") / 1000) },
+    ] } }]);
+    expect(claudeUsageLimits({ rate_limits_available: false })).toEqual([]);
+  });
+
+  it("opens /mcp, /status and /context as panels for Claude only", () => {
+    const own = [{ name: "mcp", description: "Manage MCP servers", run: "send" as const }, { name: "context", description: "", run: "send" as const }];
+    const claude = mergeCommands("claude", own, ["mcp", "context"]);
+    for (const name of ["mcp", "status", "context"]) expect(claude.find((c) => c.name === name)?.run).toBe("panel");
+    expect(claude.find((c) => c.name === "mcp")?.description).toBe("Manage MCP servers");
+    expect(mergeCommands("codex", [], []).find((c) => c.name === "status")?.run).toBe("terminal");
   });
 });

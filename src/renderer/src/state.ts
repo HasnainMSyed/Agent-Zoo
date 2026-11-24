@@ -30,6 +30,7 @@ export interface Session {
   models: ModelOption[];
   effort?: string;
   title?: string;
+  permissionMode?: string; // Claude only
 }
 
 export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui", commands: [], models: [] });
@@ -141,6 +142,7 @@ export function apply(s: Session, e: AgentEvent): Session {
       return { ...next, status: "idle", running: false };
     }
     case "commands": return { ...s, commands: e.commands };
+    case "mode": return { ...s, permissionMode: e.mode };
     case "limits": return s; // kept by the app-wide usage store, not per session
     case "models":
       // An empty list only updates the current choice (Codex sends this after a change).

@@ -8,7 +8,8 @@ import { Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
 import { HomeScreen } from "./components/HomeScreen";
 import { UsageDetails } from "./components/Usage";
-import type { PastSession, UsageLimits } from "@shared/commands";
+import { CommandPanel, modeLabel } from "./components/Panels";
+import type { PanelKind, PastSession, UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
@@ -65,6 +66,7 @@ export function App() {
   const [past, setPast] = useState<PastSession[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
   const [usage, setUsage] = useState<Partial<Record<AgentId, UsageLimits>>>({});
+  const [panel, setPanel] = useState<{ sessionId: string; kind: PanelKind } | null>(null);
   const [lastAgent, setLastAgent] = usePersisted<AgentId>("zoo.lastAgent", "claude");
   const refreshPast = useCallback((fresh = false) => {
     setPastLoading(true);
@@ -237,9 +239,16 @@ export function App() {
             onCommand={(cmd, args) => {
               const typed = `/${cmd.name}${args ? " " + args : ""}`;
               if (cmd.run === "terminal") switchView(active.info.id, "terminal", typed + "\r");
+              else if (cmd.run === "panel") setPanel({ sessionId: active.info.id, kind: cmd.name as PanelKind });
               else runCommand(active.info.id, { kind: "slash", name: cmd.name, args });
             }}
             onPickModel={(model, effort) => runCommand(active.info.id, { kind: "setModel", model, effort })}
+            panel={panel?.sessionId === active.info.id
+              ? <CommandPanel key={panel.kind} kind={panel.kind} sessionId={active.info.id} mode={active.permissionMode} onClose={() => setPanel(null)}
+                  onTerminal={(typed) => { setPanel(null); switchView(active.info.id, "terminal", typed); }} />
+              : undefined}
+            modeLabel={active.info.agent === "claude" ? modeLabel(active.permissionMode ?? "default") : undefined}
+            onMode={() => setPanel(panel?.kind === "mode" && panel.sessionId === active.info.id ? null : { sessionId: active.info.id, kind: "mode" })}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />
         )}
