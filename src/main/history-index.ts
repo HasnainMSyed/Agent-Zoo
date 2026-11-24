@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { PastSession, UsageLimits } from "@shared/commands";
 import type { AgentEvent } from "@shared/events";
 import { agentEnv } from "./env";
+import { liveClaudeElsewhere } from "./live-sessions";
 import { codexAccount, codexLimits } from "./adapters/codex-mapper";
 
 type Json = Record<string, any>;
@@ -21,7 +22,6 @@ function readSlice(path: string, from: number, bytes: number): string {
   finally { closeSync(fd); }
 }
 
-const LIVE_MS = 90_000;
 const CLAUDE_MAX = 400;
 /** Parsed Claude session files, reused until the file's size or date changes. */
 const claudeCache = new Map<string, { mtime: number; size: number; s: PastSession | null }>();
@@ -65,7 +65,8 @@ function claudeSessions(): PastSession[] {
   } catch { return []; }
   files.sort((a, b) => b.mtime - a.mtime);
   const out: PastSession[] = [];
-  const now = Date.now();
+  // Claude records its running sessions, so "open elsewhere" is exact (not a guess from the file's age).
+  const live = liveClaudeElsewhere();
   for (const { path, mtime, size } of files.slice(0, CLAUDE_MAX)) {
     let hit = claudeCache.get(path);
     if (!hit || hit.mtime !== mtime || hit.size !== size) {
@@ -79,7 +80,7 @@ function claudeSessions(): PastSession[] {
       hit = { mtime, size, s: parsed };
       claudeCache.set(path, hit);
     }
-    if (hit.s) out.push({ ...hit.s, liveElsewhere: now - mtime < LIVE_MS || undefined });
+    if (hit.s) { const l = live.get(hit.s.id); out.push({ ...hit.s, liveElsewhere: l ? true : undefined, liveStatus: l?.status }); }
   }
   return out;
 }

@@ -12,7 +12,10 @@ import { AGENT_NAMES, LimitBars } from "./Usage";
 import { TerminalView, clearTerminalBuffer } from "./TerminalView";
 
 const AGENTS: AgentId[] = ["claude", "codex", "grok"];
-const SECTIONS = [["profile", "Profile"], ["accounts", "Agents & accounts"], ["appearance", "Appearance"], ["mascots", "Mascots"], ["defaults", "New sessions"], ["about", "About"]] as const;
+/** Where "Buy me a coffee" goes (Buy Me a Coffee, Ko-fi or GitHub Sponsors). Empty until there's a page. */
+const COFFEE_URL = "";
+
+const SECTIONS = [["profile", "Profile"], ["accounts", "Agents & accounts"], ["appearance", "Appearance"], ["mascots", "Mascots"], ["defaults", "Sessions"], ["about", "About"], ["coffee", "Coffee"]] as const;
 
 export const initials = (name: string) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
 
@@ -143,7 +146,10 @@ export function SettingsPage({ settings, onChange, user, version, usage, onClose
         </section>
 
         <section id="set-defaults" className="set-card">
-          <h2>New sessions</h2>
+          <h2>Sessions</h2>
+          <Row title="Reopen where you left off" hint="At launch, the session you were last in starts again. The others stay in the sidebar until you open them.">
+            <Toggle label="Reopen where you left off" on={settings.reopenLast} onChange={(v) => set("reopenLast", v)} />
+          </Row>
           <Row title="Agent picked first" hint="On a project's start card">
             <Choice label="Default agent" value={settings.defaultAgent} onChange={(v) => set("defaultAgent", v)} options={[["last", "Last used"], ["claude", "Claude"], ["codex", "Codex"], ["grok", "Grok"]]} />
           </Row>
@@ -162,6 +168,25 @@ export function SettingsPage({ settings, onChange, user, version, usage, onClose
               <Fragment key={a}><dt>{AGENT_NAMES[a]}</dt><dd>{accts ? (accts[a].installed ? accts[a].version ?? "installed" : "not installed") : "…"}</dd></Fragment>
             ))}
           </dl>
+        </section>
+
+        <section id="set-coffee" className="set-card coffee">
+          <h2>Coffee</h2>
+          <div className="coffee-body">
+            <svg className="coffee-cup" viewBox="0 0 64 64" aria-hidden="true">
+              <path className="steam" d="M24 14c-3-4 3-6 0-10M32 14c-3-4 3-6 0-10M40 14c-3-4 3-6 0-10" />
+              <path className="cup" d="M14 22h36v14a16 16 0 0 1-16 16h-4a16 16 0 0 1-16-16z" />
+              <path className="handle" d="M50 26h3a7 7 0 0 1 0 14h-4" />
+              <path className="saucer" d="M8 56h48" />
+            </svg>
+            <div>
+              <p>Agent Zoo is free, and it keeps three agents fed. If it saves you some time, you can buy its keeper a coffee.</p>
+              <p className="muted small">The zoo runs on caffeine and good bug reports. Both are welcome.</p>
+              {COFFEE_URL
+                ? <button className="btn-primary" onClick={() => window.open(COFFEE_URL, "_blank")}>Buy me a coffee</button>
+                : <button className="btn-primary" disabled title="The tip jar isn't set up yet">Tip jar coming soon</button>}
+            </div>
+          </div>
         </section>
       </div>
     </div>

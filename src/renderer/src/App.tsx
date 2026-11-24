@@ -59,6 +59,42 @@ function RailSection({ title, id, folded, setFolded, summary, children }: {
   );
 }
 
+const keyOf = (p: { agent: AgentId; id: string }) => `${p.agent}:${p.id}`;
+const nativeKey = (s: Session) => { const id = s.nativeId ?? s.info.nativeId; return id && !s.info.cloud ? keyOf({ agent: s.info.agent, id }) : null; };
+const LIVE_STATUS: Record<string, string> = {
+  busy: "It's working on something right now.",
+  idle: "It's idle, waiting for its next message.",
+  waiting: "It's waiting for an answer in that window.",
+};
+
+/** A conversation you're opening is running somewhere else (a terminal, an editor). */
+function ElsewhereDialog({ p, onBring, onAnyway, onCancel }: { p: PastSession; onBring: () => void; onAnyway: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onCancel]);
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal elsewhere-dialog" role="dialog" aria-label="Open elsewhere" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div><strong>“{p.title}” is open somewhere else</strong>
+            <p className="muted small">{LIVE_STATUS[p.liveStatus ?? ""] ?? "Another program has it open right now."}</p></div>
+          <button className="icon-btn" onClick={onCancel} aria-label="Cancel">×</button>
+        </div>
+        <button className="choice primary" autoFocus onClick={onBring}>
+          <strong>Bring it here</strong>
+          <span>Closes the other copy as soon as it finishes what it's doing, then carries on here with everything it did.</span>
+        </button>
+        <button className="choice" onClick={onAnyway}>
+          <strong>Open here too</strong>
+          <span>Both copies keep running. What you send in one won't show up in the other.</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [layoutState, setLayoutState] = usePersisted("zoo.layout", { left: true, right: true });
   const layout = layoutState;
@@ -67,6 +103,14 @@ export function App() {
   const [expanded, setExpanded] = usePersisted<string[]>("zoo.expandedFolders", []);
   const [pinned, setPinned] = usePersisted<string[]>("zoo.pinnedFolders", []);
   const [navFolded, setNavFolded] = usePersisted<string[]>("zoo.navFolded", []);
+  // Sessions you've opened stay in the sidebar across restarts (asleep until clicked) until you
+  // remove them; removed ones also drop out of pinned folders' lists. Keys are "agent:id".
+  const [kept, setKept] = usePersisted<string[]>("zoo.keptSessions", []);
+  const [hidden, setHidden] = usePersisted<string[]>("zoo.hiddenSessions", []);
+  const [lastOpen, setLastOpen] = usePersisted<string | null>("zoo.lastSession", null);
+  // "Open elsewhere": the question being asked, and conversations waiting to be brought here.
+  const [elsewhere, setElsewhere] = useState<PastSession | null>(null);
+  const [bringing, setBringing] = useState<Record<string, { p: PastSession; status: string }>>({});
   // The Terminal pane: shells per session, whether it's showing, and its width.
   const [shells, setShells] = useState<ShellState>({});
   const shellsRef = useRef(shells);
@@ -210,11 +254,58 @@ export function App() {
 
   const list = Object.values(sessions);
 
+  // Every session opened here joins the sidebar's kept list (once its agent has given it an id).
+  useEffect(() => {
+    const live = list.map(nativeKey).filter((k): k is string => Boolean(k));
+    const add = live.filter((k) => !kept.includes(k));
+    if (add.length) setKept([...kept, ...add]);
+    if (hidden.some((k) => live.includes(k))) setHidden(hidden.filter((k) => !live.includes(k)));
+    const cur = active ? nativeKey(active) : null;
+    if (cur && cur !== lastOpen) setLastOpen(cur);
+  }, [sessions, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // At launch, pick up where you left off: the session you were last in starts again by itself.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || pastLoading || !cwd) return;
+    restored.current = true;
+    const last = settings.reopenLast && lastOpen && kept.includes(lastOpen) ? past.find((p) => keyOf(p) === lastOpen) : undefined;
+    if (last && !last.liveElsewhere && !list.length && !autoStart) start(last.agent, { cwd: last.cwd, resumeId: last.id });
+  }, [pastLoading, cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dormant = kept.map((k) => past.find((p) => keyOf(p) === k)).filter((p): p is PastSession => Boolean(p) && !list.some((s) => nativeKey(s) === keyOf(p!)));
+  /** Takes a conversation off the sidebar (it stays in All sessions). */
+  const forget = (key: string) => {
+    setKept(kept.filter((k) => k !== key));
+    if (!hidden.includes(key)) setHidden([...hidden, key]);
+    if (lastOpen === key) setLastOpen(null);
+  };
+  const removeOpen = (id: string) => { const s = sessions[id]; const k = s && nativeKey(s); closeSession(id); if (k) forget(k); };
+
+  // Bringing a conversation here: wait for the other copy to finish its turn, close it, reopen it here.
+  useEffect(() => window.agents.onTakeOverWaiting((id, status) => setBringing((prev) => {
+    const k = Object.keys(prev).find((x) => prev[x]!.p.id === id);
+    return k ? { ...prev, [k]: { ...prev[k]!, status } } : prev;
+  })), []);
+  const stopBringing = (k: string) => setBringing((prev) => { const next = { ...prev }; delete next[k]; return next; });
+  const bringHere = async (p: PastSession, now = false) => {
+    const k = keyOf(p);
+    setBringing((prev) => ({ ...prev, [k]: { p, status: prev[k]?.status ?? p.liveStatus ?? "busy" } }));
+    try { await window.agents.takeOver(p.id, now); }
+    catch (err) {
+      const msg = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err);
+      if (!/Cancelled/.test(msg)) { stopBringing(k); setStartError(msg); } // a cancelled wait was replaced or stopped
+      return;
+    }
+    stopBringing(k);
+    await start(p.agent, { cwd: p.cwd, resumeId: p.id });
+    refreshPast();
+  };
+
   /** Reopens a saved conversation, or switches to it if it's already open here. */
   const resumePast = (ps: PastSession) => {
     const open = list.find((x) => x.info.agent === ps.agent && (x.nativeId ?? x.info.nativeId) === ps.id);
     if (open) { setActiveId(open.info.id); setShowSettings(false); return; }
-    if (ps.liveElsewhere && !window.confirm(`“${ps.title}” looks like it's running somewhere else right now (it changed in the last minute). Opening it here too can mix up the two. Open anyway?`)) return;
+    if (bringing[keyOf(ps)]) return; // already on its way here
+    if (ps.liveElsewhere) { setElsewhere(ps); return; }
     start(ps.agent, { cwd: ps.cwd, resumeId: ps.id });
   };
   /** Opens several saved conversations (Select mode, or a drop on the sidebar), asking once about any running elsewhere. */
@@ -223,9 +314,10 @@ export function App() {
     let fresh = todo.filter((p) => !list.some((x) => x.info.agent === p.agent && (x.nativeId ?? x.info.nativeId) === p.id));
     if (!fresh.length) return;
     if (fresh.length > 6 && !window.confirm(`Open ${fresh.length} sessions? Each one starts its agent.`)) return;
-    const elsewhere = fresh.filter((p) => p.liveElsewhere);
-    if (elsewhere.length && !window.confirm(`${elsewhere.length} of these look like they're running somewhere else right now. Open them here too? (Cancel opens the others.)`)) {
+    const elsewhere = fresh.filter((p) => p.liveElsewhere && !bringing[keyOf(p)]);
+    if (elsewhere.length) {
       fresh = fresh.filter((p) => !p.liveElsewhere);
+      if (window.confirm(`${elsewhere.length} of these are open somewhere else right now. Bring them here? Each one closes there as soon as it finishes what it's doing. (Cancel opens just the others.)`)) elsewhere.forEach((p) => bringHere(p));
     }
     for (const p of fresh) await start(p.agent, { cwd: p.cwd, resumeId: p.id });
   };
@@ -297,10 +389,10 @@ export function App() {
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>
           <button className="new-session" onClick={() => { setActiveId(null); setShowSettings(false); }}>+ New session</button>
-          <SessionNav sessions={list} past={past} pinned={pinned} folded={navFolded} setFolded={setNavFolded} activeId={activeId} label={sessionLabel} browsing={browsing}
+          <SessionNav sessions={list} dormant={dormant} past={past} hidden={hidden} pinned={pinned} folded={navFolded} setFolded={setNavFolded} activeId={activeId} label={sessionLabel} browsing={browsing}
             onResume={resumePast} onUnpin={(path) => setPinned(pinned.filter((p) => p !== path))} onDrop={onDropLoad}
             savedCount={past.filter((p) => !list.some((s) => s.info.agent === p.agent && (s.nativeId ?? s.info.nativeId) === p.id)).length}
-            onSelect={selectSession} onClose={closeSession} onBrowse={() => setBrowsing(!browsing)} />
+            onSelect={selectSession} onClose={removeOpen} onRemove={(p) => forget(keyOf(p))} onBrowse={() => setBrowsing(!browsing)} />
           <button className={`profile-row ${showSettings ? "on" : ""}`} onClick={() => setShowSettings(!showSettings)} title="Settings">
             <span className="avatar" aria-hidden="true">{initials(settings.displayName || user)}</span>
             <span className="profile-name">{settings.displayName || user || "You"}</span>
@@ -323,6 +415,23 @@ export function App() {
 
       <main className="main" ref={mainRef}>
         <div className="main-col">
+        {startError && active && !showSettings && (
+          <div className="bring-list"><div className="bring-error" role="alert"><span className="bring-text">{startError}</span>
+            <button className="icon-btn" onClick={() => setStartError("")} aria-label="Dismiss">×</button></div></div>
+        )}
+        {Object.keys(bringing).length > 0 && !showSettings && (
+          <div className="bring-list" role="status">
+            {Object.entries(bringing).map(([k, b]) => (
+              <div key={k} className="bring-banner">
+                <span className="bring-spin" aria-hidden="true" />
+                <span className="bring-text"><strong>Bringing “{b.p.title}” here.</strong>{" "}
+                  {b.status === "waiting" ? "It's waiting for an answer in its other window; answer it there, or close it now." : b.status === "idle" ? "Closing the other copy…" : "Waiting for it to finish what it's doing…"}</span>
+                <button className="btn-small" onClick={() => bringHere(b.p, true)} title="Close the other copy now, even mid-task">Close it now</button>
+                <button className="btn-small" onClick={() => { window.agents.takeOverCancel(b.p.id); stopBringing(k); }}>Cancel</button>
+              </div>
+            ))}
+          </div>
+        )}
         {showSettings ? (
           <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)}
             packs={packs} onPacksChanged={loadPacks}
@@ -433,6 +542,11 @@ export function App() {
           onSelect={selectSession} onResume={resumePast} onOpenMany={openMany}
           onPin={(path) => { setPinned([...new Set([...pinned, path])]); setNavFolded(navFolded.filter((k) => k !== path)); }} onOpenCloud={openCloud} onCloudTask={setCloudTask}
           onDismiss={() => setBrowsing(false)} />
+      )}
+      {elsewhere && (
+        <ElsewhereDialog p={elsewhere} onCancel={() => setElsewhere(null)}
+          onBring={() => { const p = elsewhere; setElsewhere(null); bringHere(p); }}
+          onAnyway={() => { const p = elsewhere; setElsewhere(null); start(p.agent, { cwd: p.cwd, resumeId: p.id }); }} />
       )}
       {cloudTask && <CloudTask task={cloudTask} onPickFolder={() => window.agents.pickFolder()} onClose={() => setCloudTask(null)} />}
     </div>

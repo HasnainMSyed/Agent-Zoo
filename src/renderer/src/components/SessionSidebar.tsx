@@ -31,7 +31,7 @@ function OpenRow({ s, active, label, onSelect, onClose }: { s: Session; active: 
         <span className="session-name">{label}</span>
         <span className="session-agent">{AGENT_NAMES[s.info.agent]}{s.view === "terminal" ? " · Terminal" : ""}</span>
       </button>
-      <button className="close" onClick={onClose} aria-label={`Close ${label}`}>×</button>
+      <button className="close" onClick={onClose} aria-label={`Remove ${label} from the sidebar`} title="Remove from the sidebar (it stops, and stays in All sessions)">×</button>
     </div>
   );
 }
@@ -74,34 +74,53 @@ export function useDropTarget(onDrop: (load: DragLoad) => void) {
   };
 }
 
+/** A conversation listed in the sidebar but not running (kept from an earlier run, or a pinned folder's). */
+function SavedRow({ p, kept, onResume, onRemove }: { p: PastSession; kept: boolean; onResume: () => void; onRemove: () => void }) {
+  return (
+    <div className={`session-row past ${kept ? "kept" : ""}`}>
+      <button onClick={onResume} title={kept ? `${p.title} (click to start it again)` : p.title}>
+        <span className={`dot hollow agent-${p.agent}`} aria-hidden="true" />
+        <span className="session-name">{p.title}</span>
+        <span className="session-agent">{AGENT_NAMES[p.agent]} · {p.liveElsewhere ? "open elsewhere" : timeAgo(p.updatedAt)}</span>
+      </button>
+      <button className="close" onClick={onRemove} aria-label={`Remove ${p.title} from the sidebar`} title="Remove from the sidebar (it stays in All sessions)">×</button>
+    </div>
+  );
+}
+
 /**
- * The sidebar: the sessions open here, plus folders you've pinned (by dragging them in from the
- * drawer), each a foldable group. A pinned folder also lists its saved conversations.
+ * The sidebar: your sessions, grouped by folder. Sessions you've opened stay here across restarts
+ * (asleep until you click one) until you remove them; folders you've pinned (by dragging them in
+ * from the drawer) also list their saved conversations. Removing only takes a row off the sidebar:
+ * the conversation stays in All sessions.
  */
-export function SessionNav({ sessions, past, pinned, folded, setFolded, activeId, label, savedCount, browsing, onSelect, onClose, onBrowse, onResume, onUnpin, onDrop }: {
-  sessions: Session[]; past: PastSession[]; pinned: string[]; folded: string[]; setFolded: (v: string[]) => void;
+export function SessionNav({ sessions, dormant, past, hidden, pinned, folded, setFolded, activeId, label, savedCount, browsing, onSelect, onClose, onRemove, onBrowse, onResume, onUnpin, onDrop }: {
+  sessions: Session[]; dormant: PastSession[]; past: PastSession[]; hidden: string[]; pinned: string[]; folded: string[]; setFolded: (v: string[]) => void;
   activeId: string | null; label: (s: Session) => string; savedCount: number; browsing: boolean;
-  onSelect: (id: string) => void; onClose: (id: string) => void; onBrowse: () => void;
+  onSelect: (id: string) => void; onClose: (id: string) => void; onRemove: (p: PastSession) => void; onBrowse: () => void;
   onResume: (p: PastSession) => void; onUnpin: (path: string) => void; onDrop: (load: DragLoad) => void;
 }) {
   const [showAll, setShowAll] = useState<string[]>([]);
   const drop = useDropTarget(onDrop);
   const groups = useMemo(() => {
-    const map = new Map<string, { name: string; path: string; pinned: boolean; items: Session[]; saved: PastSession[] }>();
+    const map = new Map<string, { name: string; path: string; pinned: boolean; items: Session[]; kept: PastSession[]; saved: PastSession[] }>();
     const get = (key: string, path: string, name: string) => {
       let g = map.get(key);
-      if (!g) { g = { name, path, pinned: false, items: [], saved: [] }; map.set(key, g); }
+      if (!g) { g = { name, path, pinned: false, items: [], kept: [], saved: [] }; map.set(key, g); }
       return g;
     };
+    const keyOf = (p: PastSession) => `${p.agent}:${p.id}`;
     for (const path of pinned) get(path, path, folderName(path)).pinned = true;
     for (const s of sessions) get(folderKey(s), s.info.cwd, s.info.cloud ? "Claude cloud" : folderName(s.info.cwd)).items.push(s);
+    for (const p of dormant) get(p.cwd, p.cwd, folderName(p.cwd)).kept.push(p);
+    const listed = new Set(dormant.map(keyOf));
     for (const p of past) {
       const g = !p.cloud ? map.get(p.cwd) : undefined;
-      if (g?.pinned && !sessions.some((s) => sameConversation(s, p))) g.saved.push(p);
+      if (g?.pinned && !listed.has(keyOf(p)) && !hidden.includes(keyOf(p)) && !sessions.some((s) => sameConversation(s, p))) g.saved.push(p);
     }
-    for (const g of map.values()) g.saved.sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const g of map.values()) { g.kept.sort((a, b) => b.updatedAt - a.updatedAt); g.saved.sort((a, b) => b.updatedAt - a.updatedAt); }
     return [...map.entries()];
-  }, [sessions, past, pinned]);
+  }, [sessions, dormant, past, hidden, pinned]);
   const toggle = (key: string) => setFolded(folded.includes(key) ? folded.filter((k) => k !== key) : [...folded, key]);
   return (
     <>
@@ -113,37 +132,30 @@ export function SessionNav({ sessions, past, pinned, folded, setFolded, activeId
         {groups.map(([key, g]) => {
           const isFolded = folded.includes(key) && !g.items.some((s) => s.info.id === activeId);
           const all = showAll.includes(key);
-          const saved = all ? g.saved : g.saved.slice(0, Math.max(0, PER_FOLDER - g.items.length));
+          const saved = all ? g.saved : g.saved.slice(0, Math.max(0, PER_FOLDER - g.items.length - g.kept.length));
           return (
             <div key={key} className={`folder-group nav-group ${g.pinned ? "pinned" : ""}`}>
               <div className="folder-label-row">
                 <button className="folder-label" aria-expanded={!isFolded} title={g.path} onClick={() => toggle(key)}>
                   <span className={`chev-small ${isFolded ? "" : "open"}`} aria-hidden="true">›</span>
                   <span className="folder-label-name">{g.name}</span>
-                  {isFolded && <span className="folder-label-count">{g.items.length || g.saved.length}</span>}
+                  {isFolded && <span className="folder-label-count">{g.items.length + g.kept.length || g.saved.length}</span>}
                 </button>
                 {g.pinned && <button className="unpin" onClick={() => onUnpin(g.path)} aria-label={`Unpin ${g.name}`} title="Unpin this folder">×</button>}
               </div>
               <div className="fold" data-open={!isFolded}><div className="fold-inner">
                 {g.items.map((s) => <OpenRow key={s.info.id} s={s} active={s.info.id === activeId} label={label(s)} onSelect={() => onSelect(s.info.id)} onClose={() => onClose(s.info.id)} />)}
-                {saved.map((p) => (
-                  <div key={`${p.agent}-${p.id}`} className="session-row past">
-                    <button onClick={() => onResume(p)} title={p.title}>
-                      <span className={`dot hollow agent-${p.agent}`} aria-hidden="true" />
-                      <span className="session-name">{p.title}</span>
-                      <span className="session-agent">{AGENT_NAMES[p.agent]} · {timeAgo(p.updatedAt)}</span>
-                    </button>
-                  </div>
-                ))}
+                {g.kept.map((p) => <SavedRow key={`${p.agent}-${p.id}`} p={p} kept onResume={() => onResume(p)} onRemove={() => onRemove(p)} />)}
+                {saved.map((p) => <SavedRow key={`${p.agent}-${p.id}`} p={p} kept={false} onResume={() => onResume(p)} onRemove={() => onRemove(p)} />)}
                 {saved.length < g.saved.length && <button className="show-all" onClick={() => setShowAll([...showAll, key])}>Show all ({g.saved.length})</button>}
-                {g.pinned && !g.items.length && !g.saved.length && <p className="muted tiny pad-l">No saved conversations here yet.</p>}
+                {g.pinned && !g.items.length && !g.kept.length && !g.saved.length && <p className="muted tiny pad-l">No saved conversations here yet.</p>}
               </div></div>
             </div>
           );
         })}
         {!groups.length && (
           <div className="nav-empty">
-            <p className="muted small">No sessions open.</p>
+            <p className="muted small">No sessions here yet.</p>
             <p className="muted tiny">Drag sessions or whole folders here from All sessions.</p>
             <button className="btn-small" onClick={onBrowse}>Browse past sessions</button>
           </div>

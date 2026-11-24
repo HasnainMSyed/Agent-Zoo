@@ -29,6 +29,14 @@ const api = {
   /** A shell in a session's folder for the Terminal pane; returns its terminal id. */
   shellOpen: (sessionId: string, cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("shell:open", sessionId, cols, rows),
   shellClose: (id: string): Promise<void> => ipcRenderer.invoke("shell:close", id),
+  /** Closes the copy of a Claude conversation running elsewhere once its turn is over (now: don't wait). */
+  takeOver: (sessionId: string, now?: boolean): Promise<"closed" | "gone"> => ipcRenderer.invoke("session:takeOver", sessionId, now),
+  takeOverCancel: (sessionId: string): Promise<void> => ipcRenderer.invoke("session:takeOverCancel", sessionId),
+  onTakeOverWaiting(cb: (sessionId: string, status: string) => void) {
+    const listener = (_: unknown, id: string, status: string) => cb(id, status);
+    ipcRenderer.on("takeover:waiting", listener);
+    return () => { ipcRenderer.removeListener("takeover:waiting", listener); };
+  },
   usage: (): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:get"),
   /** Re-reads plan limits (one agent, or all when omitted). */
   refreshUsage: (agent?: AgentId): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:refresh", agent),

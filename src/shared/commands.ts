@@ -69,8 +69,10 @@ export interface AccountInfo { installed: boolean; version?: string; signedIn?: 
 /** A conversation saved by an agent, for the home screen and sidebar. */
 export interface PastSession {
   agent: "claude" | "codex" | "grok"; id: string; cwd: string; title: string; updatedAt: number;
-  /** Written to within the last minute and a half: probably running in another terminal right now. */
+  /** Claude only: running somewhere else right now (a terminal, an editor), from Claude's own record of running sessions. */
   liveElsewhere?: boolean;
+  /** Claude only: what the copy running elsewhere is doing ("busy", "idle" or "waiting" for an answer). */
+  liveStatus?: string;
   /** A Codex Cloud task (runs on OpenAI's servers; `cwd` holds its environment's name). */
   cloud?: boolean;
   status?: string;

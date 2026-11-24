@@ -672,3 +672,28 @@ body.resizing .shell-pane, body.resizing .main-col { pointer-events: none; }
 @property --link { syntax: "<color>"; inherits: true; initial-value: #184f95; }
 .app[data-skin] { transition: grid-template-columns .24s var(--ease), --accent .6s ease, --accent-strong .6s ease, --on-accent .6s ease, --canvas .6s ease, --sidebar .6s ease, --surface .6s ease, --surface-2 .6s ease, --line .6s ease, --text .6s ease, --muted .6s ease, --bubble .6s ease, --link .6s ease; }
 .home-start[data-skin] { transition: --accent .6s ease, --accent-strong .6s ease, --on-accent .6s ease, --canvas .6s ease, --sidebar .6s ease, --surface .6s ease, --surface-2 .6s ease, --line .6s ease, --text .6s ease, --muted .6s ease, --bubble .6s ease, --link .6s ease; }
+
+/* ---------- Sessions kept across restarts, "open elsewhere", Bring it here ---------- */
+.session-row.kept .session-name { color: color-mix(in srgb, var(--text) 88%, var(--muted)); }
+.session-row:focus-within .close { opacity: 1; }
+.elsewhere-dialog { width: min(460px, calc(100vw - 32px)); }
+.elsewhere-dialog .modal-head p { margin: 4px 0 0; }
+.choice { display: grid; gap: 3px; text-align: left; padding: 11px 13px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); color: var(--text); }
+.choice span { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.choice:hover, .choice:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.choice.primary { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.bring-list { display: grid; gap: 6px; padding: 10px 16px 0; }
+.bring-banner, .bring-error { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 13px; animation: rise .2s var(--ease); }
+.bring-text { flex: 1; min-width: 0; }
+.bring-spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+.bring-error { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }
+@media (prefers-reduced-motion: reduce) { .bring-spin { animation-duration: 3s; } }
+
+/* ---------- Settings: Coffee ---------- */
+.coffee-body { display: flex; gap: 18px; align-items: center; }
+.coffee-body p { margin: 0 0 8px; }
+.coffee-cup { width: 64px; height: 64px; flex: none; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.coffee-cup .cup { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+.coffee-cup .steam { stroke: var(--muted); stroke-dasharray: 3 4; animation: steam 2.4s linear infinite; }
+@keyframes steam { to { stroke-dashoffset: -14; } }
+.reduce-motion .coffee-cup .steam, .reduce-motion .bring-spin { animation: none; }

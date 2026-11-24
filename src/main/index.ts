@@ -12,9 +12,23 @@ import { grokUsage } from "./grok-usage";
 import { MascotStore } from "./mascots";
 import { userInfo } from "node:os";
 import { loadShellPath } from "./env";
+import { takeOverClaude } from "./live-sessions";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
-if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath("temp"), `agent-zoo-test-${process.pid}`));
+// AGENTS_GUI_TEST_PROFILE=name keeps one between runs (to test what survives a restart).
+if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath("temp"), `agent-zoo-test-${process.env.AGENTS_GUI_TEST_PROFILE || process.pid}`));
+// Development runs keep their own settings, apart from the installed app's (so the two never mix).
+else if (!app.isPackaged) app.setPath("userData", join(app.getPath("appData"), "agent-zoo-dev"));
+
+// One copy of the app at a time: starting it again brings the open window forward instead of
+// running a second copy against the same settings and sessions.
+if (!process.env.AGENTS_GUI_SCREENSHOT && !app.requestSingleInstanceLock()) app.exit(0);
+app.on("second-instance", () => {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
 
 let win: BrowserWindow | null = null;
 let usage: UsageStore | undefined; // created once the app is ready (it needs the data folder)
@@ -114,6 +128,20 @@ ipcMain.handle("account:run", (_e, agent: AgentId, action: "login" | "logout", c
 ipcMain.handle("account:close", (_e, id: string) => manager.closeUtility(id));
 ipcMain.handle("shell:open", (_e, sessionId: string, cols?: number, rows?: number) => manager.openShell(sessionId, cols, rows));
 ipcMain.handle("shell:close", (_e, id: string) => manager.closeShell(id));
+// "Bring it here": close the copy of a Claude conversation running elsewhere once its turn is
+// over, so the app can reopen it with everything it did. Progress goes to the page as it waits.
+const takeovers = new Map<string, { cancelled: boolean }>();
+ipcMain.handle("session:takeOver", async (_e, sessionId: string, now?: boolean) => {
+  if (typeof sessionId !== "string" || !/^[\w-]{8,80}$/.test(sessionId)) throw new Error("Unknown session.");
+  const job = { cancelled: false };
+  const prev = takeovers.get(sessionId);
+  if (prev) prev.cancelled = true;
+  takeovers.set(sessionId, job);
+  try {
+    return await takeOverClaude(sessionId, { now, cancelled: () => job.cancelled, onWaiting: (status) => win?.webContents.send("takeover:waiting", sessionId, status) });
+  } finally { if (takeovers.get(sessionId) === job) takeovers.delete(sessionId); }
+});
+ipcMain.handle("session:takeOverCancel", (_e, sessionId: string) => { const j = takeovers.get(sessionId); if (j) j.cancelled = true; });
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));
