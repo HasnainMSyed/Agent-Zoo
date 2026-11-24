@@ -1,0 +1,256 @@
+<title>Home Screen Concepts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: intro, then three stacked concept boards; each board is a scaled app mockup beside its notes. */
+:root {
+  --bg: #f4f3f7; --surface: #ffffff; --fg: #17151f; --muted: #5f5b6e; --line: #dedbe8; --accent: #c4613f; --chip: #ecebf3;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0f0e13; --surface: #18171e; --fg: #f1f0f6; --muted: #a39fb4; --line: #2b2937; --accent: #e08a6a; --chip: #24222d; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #0f0e13; --surface: #18171e; --fg: #f1f0f6; --muted: #a39fb4; --line: #2b2937; --accent: #e08a6a; --chip: #24222d; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); line-height: 1.5; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.intro { padding-block: 40px 8px; }
+h1 { font-family: var(--font-display); font-size: clamp(28px, 4.5vw, 42px); margin: 0 0 8px; letter-spacing: -0.02em; text-wrap: balance; }
+.intro p { color: var(--muted); max-width: 66ch; margin: 0; }
+.board { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; padding-block: 34px; border-bottom: 1px solid var(--line); align-items: start; }
+@media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+.notes h2 { font-family: var(--font-display); font-size: 24px; margin: 0 0 4px; }
+.notes .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+.notes p { color: var(--muted); margin: 8px 0; font-size: 14.5px; }
+.notes ul { margin: 8px 0; padding-left: 18px; font-size: 14px; color: var(--muted); }
+.notes li { margin: 3px 0; }
+.notes li b { color: var(--fg); font-weight: 600; }
+.choose { margin-top: 10px; font: inherit; font-weight: 600; font-size: 14px; border: 1px solid var(--line); background: var(--chip); color: var(--fg); padding: 8px 16px; border-radius: 999px; cursor: pointer; }
+.choose[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.choose:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pickbar { position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
+.pickbar .wrap { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.pickbar b { color: var(--fg); }
+footer { color: var(--muted); font-size: 13px; padding-block: 24px 40px; }
+
+/* ---------- App mockups: fixed dark Claude skin, scaled with container units ---------- */
+.mock { container-type: inline-size; aspect-ratio: 16 / 10; max-width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid #2c2a27; box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  --c-canvas: #191919; --c-side: #1f1f1f; --c-surf: #232220; --c-surf2: #2b2926; --c-line: #34312d; --c-text: #f6f4f1; --c-muted: #a39e98; --c-claude: #d97757; --c-codex: #3ff0a8; --c-grok: #9b8fff;
+  background: var(--c-canvas); color: var(--c-text); font-family: var(--font-body); font-size: 1.05cqw; display: flex; }
+.mock * { box-sizing: border-box; }
+.m-side { width: 17%; background: var(--c-side); border-right: 1px solid var(--c-line); padding: 1.4cqw 1cqw; display: flex; flex-direction: column; gap: .7cqw; }
+.m-brand { font-weight: 700; font-size: 1.25cqw; }
+.m-new { border: 1px solid var(--c-line); border-radius: .7cqw; padding: .55cqw .8cqw; font-weight: 500; }
+.m-folder { color: var(--c-muted); font-size: .9cqw; font-weight: 600; margin-top: .4cqw; }
+.m-sess { padding: .45cqw .7cqw; border-radius: .5cqw; display: flex; gap: .6cqw; align-items: center; font-size: .95cqw; white-space: nowrap; overflow: hidden; }
+.m-sess.on { background: var(--c-surf2); }
+.dot { width: .6cqw; height: .6cqw; border-radius: 50%; background: var(--c-muted); flex-shrink: 0; }
+.dot.claude { background: var(--c-claude); } .dot.codex { background: var(--c-codex); } .dot.grok { background: var(--c-grok); }
+.m-main { flex: 1; min-width: 0; padding: 2.2cqw 3cqw; display: flex; flex-direction: column; gap: 1.4cqw; position: relative; }
+.m-h { font-family: var(--font-display); font-weight: 700; font-size: 2.4cqw; letter-spacing: -.02em; margin: 0; }
+.m-sub { color: var(--c-muted); font-size: 1cqw; margin: 0; }
+.m-input { border: 1px solid var(--c-line); background: var(--c-surf); border-radius: 1.2cqw; padding: 1.2cqw 1.4cqw; display: flex; flex-direction: column; gap: 1cqw; box-shadow: 0 .6cqw 2cqw rgba(0,0,0,.25); }
+.m-input .ph { color: var(--c-muted); font-size: 1.25cqw; }
+.m-row { display: flex; gap: .6cqw; align-items: center; flex-wrap: wrap; }
+.chip { border: 1px solid var(--c-line); border-radius: 99cqw; padding: .3cqw .8cqw; font-size: .88cqw; color: var(--c-text); background: var(--c-canvas); white-space: nowrap; }
+.chip.acc { border-color: var(--c-claude); color: var(--c-claude); }
+.send { margin-left: auto; background: var(--c-claude); color: #fff; border-radius: 99cqw; padding: .35cqw 1.1cqw; font-weight: 600; font-size: .95cqw; }
+.label { font-size: .8cqw; text-transform: uppercase; letter-spacing: .08em; color: var(--c-muted); font-weight: 600; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1cqw; }
+.card { background: var(--c-surf); border: 1px solid var(--c-line); border-radius: 1cqw; padding: 1cqw 1.1cqw; display: flex; flex-direction: column; gap: .35cqw; min-width: 0; }
+.card b { font-size: 1.1cqw; } .card .p { color: var(--c-muted); font-size: .85cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .last { font-size: .9cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta { display: flex; gap: .4cqw; align-items: center; color: var(--c-muted); font-size: .8cqw; }
+.mascot { width: 4cqw; height: 4cqw; } .mascot svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.mascot .e-happy, .mascot .e-x, .mascot .e-sad, .mascot .m-sad, .mascot .fb { display: none; }
+.mascot .body { transform-box: fill-box; transform-origin: 50% 100%; animation: bob 3s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(-3%) } }
+@media (prefers-reduced-motion: reduce) { .mascot .body { animation: none; } }
+.agent-pill { display: flex; gap: .4cqw; background: var(--c-surf); border: 1px solid var(--c-line); border-radius: 99cqw; padding: .3cqw; align-self: flex-start; }
+.agent-pill span { display: flex; align-items: center; gap: .4cqw; padding: .2cqw .8cqw .2cqw .3cqw; border-radius: 99cqw; font-size: .95cqw; color: var(--c-muted); }
+.agent-pill span.on { background: var(--c-surf2); color: var(--c-text); }
+.agent-pill .mascot { width: 2.2cqw; height: 2.2cqw; padding: 0; }
+
+/* Concept B: habitats */
+.hab-wrap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4cqw; flex: 1; min-height: 0; }
+.hab { border-radius: 1.4cqw; padding: 1.6cqw; display: flex; flex-direction: column; gap: .8cqw; position: relative; overflow: hidden; border: 1px solid var(--c-line); }
+.hab.claude { background: radial-gradient(circle at 50% 30%, #4a2a1f 0%, #1d1a18 70%); }
+.hab.codex { background: radial-gradient(circle at 50% 30%, #12392e 0%, #1a1d1c 70%); }
+.hab.grok { background: radial-gradient(circle at 50% 30%, #2a2060 0%, #07070c 70%); }
+.hab .mascot { width: 9cqw; height: 9cqw; align-self: center; margin: .6cqw 0 .2cqw; }
+.hab h3 { margin: 0; font-family: var(--font-display); font-size: 1.6cqw; text-align: center; }
+.hab .model { text-align: center; color: var(--c-muted); font-size: .9cqw; }
+.bar { display: flex; flex-direction: column; gap: .25cqw; font-size: .82cqw; color: var(--c-muted); }
+.bar .t { height: .55cqw; border-radius: 99cqw; background: rgba(255,255,255,.08); overflow: hidden; }
+.bar .f { height: 100%; border-radius: 99cqw; }
+.hab .go { margin-top: auto; text-align: center; border-radius: 99cqw; padding: .55cqw; font-weight: 600; font-size: 1cqw; color: #111; }
+.hab.claude .go { background: var(--c-claude); color: #fff; } .hab.codex .go { background: var(--c-codex); } .hab.grok .go { background: var(--c-grok); }
+.hab.claude .f { background: var(--c-claude); } .hab.codex .f { background: var(--c-codex); } .hab.grok .f { background: var(--c-grok); }
+.hab .note { font-size: .82cqw; color: var(--c-muted); text-align: center; }
+.strip { display: flex; gap: .8cqw; align-items: center; color: var(--c-muted); font-size: .9cqw; }
+
+/* Concept C: command center */
+.cc { display: grid; grid-template-columns: 1.1fr 1.5fr 1fr; gap: 1.4cqw; flex: 1; min-height: 0; }
+.panel { background: var(--c-surf); border: 1px solid var(--c-line); border-radius: 1.1cqw; padding: 1.2cqw; display: flex; flex-direction: column; gap: .8cqw; min-width: 0; }
+.panel h4 { margin: 0; font-size: .8cqw; text-transform: uppercase; letter-spacing: .08em; color: var(--c-muted); }
+.proj { display: flex; flex-direction: column; gap: .3cqw; }
+.proj .n { font-weight: 600; font-size: 1cqw; display: flex; justify-content: space-between; }
+.proj .s { display: flex; gap: .5cqw; align-items: center; font-size: .88cqw; color: var(--c-muted); padding-left: .8cqw; white-space: nowrap; overflow: hidden; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5cqw; }
+.seg div { border: 1px solid var(--c-line); border-radius: .8cqw; padding: .6cqw; display: flex; flex-direction: column; align-items: center; gap: .2cqw; font-size: .9cqw; }
+.seg div.on { border-color: var(--c-claude); background: rgba(217,119,87,.08); }
+.seg .mascot { width: 3cqw; height: 3cqw; }
+.field { border: 1px solid var(--c-line); border-radius: .7cqw; padding: .6cqw .8cqw; font-size: .95cqw; background: var(--c-canvas); display: flex; justify-content: space-between; }
+.field.big { min-height: 6cqw; color: var(--c-muted); align-items: flex-start; }
+.uline { display: flex; flex-direction: column; gap: .5cqw; padding-bottom: .7cqw; border-bottom: 1px solid var(--c-line); }
+.uline:last-child { border-bottom: 0; }
+.uline .hd { display: flex; align-items: center; gap: .5cqw; font-weight: 600; font-size: .95cqw; }
+.uline .hd small { margin-left: auto; color: var(--c-muted); font-weight: 500; }
+.uline .f.claude { background: var(--c-claude); } .uline .f.codex { background: var(--c-codex); } .uline .f.grok { background: var(--c-grok); }
+.big-num { font-family: var(--font-display); font-size: 2.2cqw; font-weight: 700; }
+</style>
+
+<header class="intro wrap">
+  <h1>Home Screen Concepts</h1>
+  <p>Three directions for the screen you see when you open Agent Zoo or press New session. Each mockup uses the app's real mascots in its dark Claude skin. The usage numbers and project names in them are examples. Pick one, or tell me what to mix.</p>
+</header>
+
+<main class="wrap">
+  <section class="board" id="launcher">
+    <div class="mock" role="img" aria-label="Concept A mockup: prompt-first launcher">
+      <div class="m-side">
+        <div class="m-brand">Agent Zoo</div><div class="m-new">+ New session</div>
+        <div class="m-folder">› agents-gui</div>
+        <div class="m-sess"><span class="dot claude"></span>Fix the slash menu…</div>
+        <div class="m-sess"><span class="dot codex"></span>Add mul() to calc</div>
+        <div class="m-folder">› portfolio-site</div>
+        <div class="m-sess"><span class="dot grok"></span>Hero animation</div>
+      </div>
+      <div class="m-main" style="justify-content:center;max-width:78%;margin:0 auto;width:100%">
+        <div class="agent-pill"><span class="on"><span class="mascot">{{inkling}}</span>Claude Code</span><span><span class="mascot">{{prompt}}</span>Codex</span><span><span class="mascot">{{void}}</span>Grok</span></div>
+        <p class="m-h">What are we building today?</p>
+        <div class="m-input">
+          <div class="ph">Describe a change, a fix or an idea…</div>
+          <div class="m-row"><span class="chip acc">agents-gui ▾</span><span class="chip">Opus 5.5 · high ▾</span><span class="chip">Chat ▾</span><span class="send">Start</span></div>
+        </div>
+        <div class="label">Recent projects</div>
+        <div class="cards">
+          <div class="card"><b>agents-gui</b><span class="p">~/projects/agents-gui</span><span class="last">Fix the slash menu layout</span><span class="meta"><span class="dot claude"></span><span class="dot codex"></span>2 sessions · 5 min ago</span></div>
+          <div class="card"><b>portfolio-site</b><span class="p">~/projects/portfolio-site</span><span class="last">Hero animation timing</span><span class="meta"><span class="dot grok"></span>1 session · yesterday</span></div>
+          <div class="card"><b>scripts</b><span class="p">~/scripts</span><span class="last">Backup cron cleanup</span><span class="meta"><span class="dot claude"></span>3 sessions · Mon</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="tag">Concept A</span>
+      <h2>Launcher</h2>
+      <p>Start by typing. The agent, folder and model are small choices around one big input box, so a new session is one sentence away.</p>
+      <ul>
+        <li><b>Fastest</b> path from "New session" to working</li>
+        <li>Recent projects underneath reopen a folder with one click</li>
+        <li>Mascots stay small; the prompt is the hero</li>
+      </ul>
+      <button class="choose" id="choose-launcher" aria-pressed="false">Choose Launcher</button>
+    </div>
+  </section>
+
+  <section class="board" id="habitats">
+    <div class="mock" role="img" aria-label="Concept B mockup: three mascot habitats">
+      <div class="m-side">
+        <div class="m-brand">Agent Zoo</div><div class="m-new">+ New session</div>
+        <div class="m-folder">› agents-gui</div>
+        <div class="m-sess on"><span class="dot claude"></span>Fix the slash menu…</div>
+        <div class="m-sess"><span class="dot codex"></span>Add mul() to calc</div>
+      </div>
+      <div class="m-main">
+        <div class="m-row"><p class="m-h" style="font-size:2cqw">Who's working on <span style="color:var(--c-claude)">agents-gui</span>?</p><span class="chip" style="margin-left:auto">Change folder</span></div>
+        <div class="hab-wrap">
+          <div class="hab claude"><span class="mascot">{{inkling}}</span><h3>Claude Code</h3><div class="model">Opus 5.5 · Claude Pro</div>
+            <div class="bar">5-hour limit · 12%<div class="t"><div class="f" style="width:12%"></div></div></div>
+            <div class="bar">Weekly limit · 49%<div class="t"><div class="f" style="width:49%"></div></div></div>
+            <div class="go">Start Claude</div></div>
+          <div class="hab codex"><span class="mascot">{{prompt}}</span><h3>Codex</h3><div class="model">GPT-6.2-Sol · ChatGPT Plus</div>
+            <div class="bar">5-hour limit · 4%<div class="t"><div class="f" style="width:4%"></div></div></div>
+            <div class="bar">Weekly limit · 18%<div class="t"><div class="f" style="width:18%"></div></div></div>
+            <div class="go">Start Codex</div></div>
+          <div class="hab grok"><span class="mascot">{{void}}</span><h3>Grok</h3><div class="model">Grok 4.7 · high effort</div>
+            <div class="note">Plan limits show in Grok's own /usage</div>
+            <div class="bar">Spent today · $0.34<div class="t"><div class="f" style="width:20%"></div></div></div>
+            <div class="go">Start Grok</div></div>
+        </div>
+        <div class="strip"><span class="label">Recent</span><span class="chip">agents-gui</span><span class="chip">portfolio-site</span><span class="chip">scripts</span></div>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="tag">Concept B</span>
+      <h2>Habitats</h2>
+      <p>The three agents live side by side, each in its own skin, with its mascot front and centre and how much of its plan you have left.</p>
+      <ul>
+        <li><b>Most character</b>: leans into the zoo idea and the mascots</li>
+        <li>Limits visible before you choose which agent to use</li>
+        <li>Pick the folder first, then the agent</li>
+      </ul>
+      <button class="choose" id="choose-habitats" aria-pressed="false">Choose Habitats</button>
+    </div>
+  </section>
+
+  <section class="board" id="command">
+    <div class="mock" role="img" aria-label="Concept C mockup: command center with projects, quick start and usage">
+      <div class="m-main" style="padding:2cqw 2.4cqw">
+        <div class="m-row"><span class="m-brand" style="font-size:1.4cqw">Agent Zoo</span><span class="m-sub" style="margin-left:1cqw">Tuesday · 3 agents ready</span></div>
+        <div class="cc">
+          <div class="panel"><h4>Projects</h4>
+            <div class="proj"><div class="n">agents-gui <small style="color:var(--c-muted)">3</small></div>
+              <div class="s"><span class="dot claude"></span>Fix the slash menu layout</div><div class="s"><span class="dot codex"></span>Add mul() to calc</div><div class="s"><span class="dot grok"></span>Grok sync test</div></div>
+            <div class="proj"><div class="n">portfolio-site <small style="color:var(--c-muted)">1</small></div><div class="s"><span class="dot grok"></span>Hero animation timing</div></div>
+            <div class="proj"><div class="n">scripts <small style="color:var(--c-muted)">3</small></div><div class="s"><span class="dot claude"></span>Backup cron cleanup</div></div>
+            <div class="m-sub" style="margin-top:auto">+ Open another folder</div>
+          </div>
+          <div class="panel"><h4>Quick start</h4>
+            <div class="field">~/projects/agents-gui <span>▾</span></div>
+            <div class="seg"><div class="on"><span class="mascot">{{inkling}}</span>Claude</div><div><span class="mascot">{{prompt}}</span>Codex</div><div><span class="mascot">{{void}}</span>Grok</div></div>
+            <div class="field big">What should it work on?</div>
+            <div class="m-row"><span class="chip">Opus 5.5 · high ▾</span><span class="chip">Chat ▾</span><span class="send">Start session</span></div>
+          </div>
+          <div class="panel"><h4>Usage</h4>
+            <div class="uline"><div class="hd"><span class="dot claude"></span>Claude Pro<small>resets 4h</small></div>
+              <div class="bar">5-hour · 12%<div class="t"><div class="f claude" style="width:12%"></div></div></div>
+              <div class="bar">Weekly · 49%<div class="t"><div class="f claude" style="width:49%"></div></div></div></div>
+            <div class="uline"><div class="hd"><span class="dot codex"></span>ChatGPT Plus<small>resets 3h</small></div>
+              <div class="bar">5-hour · 4%<div class="t"><div class="f codex" style="width:4%"></div></div></div>
+              <div class="bar">Weekly · 18%<div class="t"><div class="f codex" style="width:18%"></div></div></div></div>
+            <div class="uline"><div class="hd"><span class="dot grok"></span>Grok<small>today</small></div><span class="big-num">$0.34</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="tag">Concept C</span>
+      <h2>Command center</h2>
+      <p>One overview: every project and its sessions, a quick-start card, and plan usage for all three agents, without opening a session.</p>
+      <ul>
+        <li><b>Most information</b> at a glance</li>
+        <li>Projects panel helps when folders pile up</li>
+        <li>Full-width; the sidebar isn't needed on this screen</li>
+      </ul>
+      <button class="choose" id="choose-command" aria-pressed="false">Choose Command center</button>
+    </div>
+  </section>
+</main>
+
+<div class="pickbar"><div class="wrap"><span id="pick-text">No concept chosen yet. Choose one above, then tell me in the chat, along with anything you'd change.</span></div></div>
+<footer class="wrap">Mockups use the app's own mascots, all original artwork. Usage figures, project names and session titles are examples.</footer>
+
+<script>
+const NAMES = { launcher: "Launcher (A)", habitats: "Habitats (B)", command: "Command center (C)" };
+let pick = null;
+try { pick = localStorage.getItem("home-pick"); } catch {}
+function render() {
+  for (const id of Object.keys(NAMES)) document.getElementById("choose-" + id).setAttribute("aria-pressed", String(pick === id));
+  document.getElementById("pick-text").innerHTML = pick ? `You chose <b>${NAMES[pick]}</b>. Tell me in the chat, with anything you'd mix in from the others.` : "No concept chosen yet. Choose one above, then tell me in the chat, along with anything you'd change.";
+}
+for (const id of Object.keys(NAMES)) document.getElementById("choose-" + id).addEventListener("click", () => {
+  pick = pick === id ? null : id;
+  try { pick ? localStorage.setItem("home-pick", pick) : localStorage.removeItem("home-pick"); } catch {}
+  render();
+});
+render();
+</script>
