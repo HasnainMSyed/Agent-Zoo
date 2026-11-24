@@ -37,6 +37,19 @@ const api = {
     ipcRenderer.on("update:state", listener);
     return () => { ipcRenderer.removeListener("update:state", listener); };
   },
+  /** Local web servers (dev servers) for the Browser pane: port and the program listening. */
+  browserServers: (): Promise<{ port: number; name?: string }[]> => ipcRenderer.invoke("browser:servers"),
+  /** The Files pane: a session's folder (paths are relative to it). */
+  files: {
+    list: (sessionId: string, rel: string): Promise<{ name: string; dir: boolean }[]> => ipcRenderer.invoke("files:list", sessionId, rel),
+    read: (sessionId: string, rel: string): Promise<
+      | { kind: "text"; text: string; mtime: number; size: number }
+      | { kind: "image"; dataUrl: string; mtime: number; size: number }
+      | { kind: "binary" | "too-big"; mtime: number; size: number }> => ipcRenderer.invoke("files:read", sessionId, rel),
+    stat: (sessionId: string, rel: string): Promise<{ mtime: number; size: number } | null> => ipcRenderer.invoke("files:stat", sessionId, rel),
+    write: (sessionId: string, rel: string, text: string, expectMtime?: number): Promise<{ mtime: number }> => ipcRenderer.invoke("files:write", sessionId, rel, text, expectMtime),
+    reveal: (sessionId: string, rel: string): Promise<void> => ipcRenderer.invoke("files:reveal", sessionId, rel),
+  },
   /** Whether Claude Code's voice mode (/voice) is switched on in its settings. */
   claudeVoiceOn: (): Promise<boolean> => ipcRenderer.invoke("claude:voiceOn"),
   codexDictationReady: (): Promise<void> => ipcRenderer.invoke("codex:dictationReady"),

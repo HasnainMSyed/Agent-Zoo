@@ -230,6 +230,12 @@ export class SessionManager {
   }
   closeUtility(id: string) { this.utilities.get(id)?.close(); this.utilities.delete(id); }
 
+  /** A session's folder (for the Files pane); undefined for cloud sessions, which have none here. */
+  folderOf(sessionId: string): string | undefined {
+    const s = this.sessions.get(sessionId);
+    return s && !s.info.cloud ? s.info.cwd : undefined;
+  }
+
   /** Shells beside a conversation (the Terminal pane), started in its folder; they close with it. */
   private shells = new Map<string, Set<string>>();
   openShell(sessionId: string, cols?: number, rows?: number): string {

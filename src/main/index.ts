@@ -15,6 +15,8 @@ import { userInfo } from "node:os";
 import { loadShellPath } from "./env";
 import { takeOverClaude } from "./live-sessions";
 import { installUpdate, startUpdates, updateState } from "./updater";
+import { fileStat, listDir, readFileFor, writeFileFor } from "./files";
+import { localServers } from "./local-servers";
 import { codexDictationKey, transcribeCodexAudio } from "./codex-dictation";
 import logoPath from "../renderer/src/assets/prompt-habitat-logo.png?asset";
 
@@ -56,7 +58,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 860, minWidth: 760, minHeight: 520, show: !offscreen,
     title: "Prompt Habitat", icon: logoPath, backgroundColor: "#191919", autoHideMenuBar: true,
-    webPreferences: { preload: join(import.meta.dirname, "../preload/index.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen },
+    webPreferences: { preload: join(import.meta.dirname, "../preload/index.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen, webviewTag: true },
   });
   // Links in agent output open in the system browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -64,6 +66,21 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
+  // The Browser pane's <webview>: web pages only, with no preload, no Node, sandboxed, and their
+  // own cookie storage. Pages that open a new window go to the system browser instead.
+  win.webContents.on("will-attach-webview", (e, prefs, params) => {
+    delete (prefs as { preload?: string }).preload;
+    prefs.nodeIntegration = false; prefs.nodeIntegrationInSubFrames = false;
+    prefs.contextIsolation = true; prefs.sandbox = true; prefs.webSecurity = true;
+    if (!/^(https?:|about:blank)/.test(params.src ?? "") || params.partition !== "persist:browser-pane") e.preventDefault();
+  });
+  win.webContents.on("did-attach-webview", (_e, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/.test(url)) import("electron").then(({ shell }) => shell.openExternal(url));
+      return { action: "deny" };
+    });
+    contents.on("will-navigate", (e, url) => { if (!/^https?:/.test(url)) e.preventDefault(); });
+  });
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else win.loadFile(join(import.meta.dirname, "../renderer/index.html"));
   win.on("closed", () => { win = null; });
@@ -132,6 +149,23 @@ ipcMain.handle("account:run", (_e, agent: AgentId, action: "login" | "logout", c
 ipcMain.handle("account:close", (_e, id: string) => manager.closeUtility(id));
 ipcMain.handle("shell:open", (_e, sessionId: string, cols?: number, rows?: number) => manager.openShell(sessionId, cols, rows));
 ipcMain.handle("shell:close", (_e, id: string) => manager.closeShell(id));
+// The Files pane: only inside an open session's own folder (files.ts refuses anything outside it).
+const folderFor = (sessionId: string) => {
+  const root = manager.folderOf(sessionId);
+  if (!root) throw new Error("This session has no folder on this computer.");
+  return root;
+};
+// Web servers listening on this computer (for the Browser pane's quick links).
+ipcMain.handle("browser:servers", () => localServers());
+ipcMain.handle("files:list", (_e, sessionId: string, rel: string) => listDir(folderFor(sessionId), rel));
+ipcMain.handle("files:read", (_e, sessionId: string, rel: string) => readFileFor(folderFor(sessionId), rel));
+ipcMain.handle("files:stat", (_e, sessionId: string, rel: string) => fileStat(folderFor(sessionId), rel));
+ipcMain.handle("files:write", (_e, sessionId: string, rel: string, text: string, expectMtime?: number) => writeFileFor(folderFor(sessionId), rel, text, expectMtime));
+ipcMain.handle("files:reveal", async (_e, sessionId: string, rel: string) => {
+  const { inside } = await import("./files");
+  const { shell } = await import("electron");
+  shell.showItemInFolder(await inside(folderFor(sessionId), rel));
+});
 // Claude Code's voice mode setting (~/.claude/settings.json); only these two fields are read.
 ipcMain.handle("claude:voiceOn", () => {
   try {

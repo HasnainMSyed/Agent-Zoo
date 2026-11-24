@@ -13,6 +13,16 @@ import { CommandPanel, modeLabel } from "./components/Panels";
 import { SettingsPage, initials } from "./components/SettingsPage";
 import { CloudTask, SessionBrowser, SessionNav, useDropTarget, type DragLoad } from "./components/SessionSidebar";
 import { ShellPane, type ShellState } from "./components/ShellPane";
+import { FilesPane } from "./components/FilesPane";
+import { BrowserPane } from "./components/BrowserPane";
+
+/** The side tools beside the chat (like Claude's desktop app): one shows at a time. */
+type Tool = "terminal" | "files" | "browser";
+const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
+  { id: "terminal", label: "Terminal", icon: <path d="M5 7l5 5-5 5M12 17h7" /> },
+  { id: "files", label: "Files", icon: <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5H10l2 2h6.5A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" /> },
+  { id: "browser", label: "Browser", icon: <><circle cx="12" cy="12" r="8" /><path d="M4 12h16M12 4c2.5 2.6 2.5 13.4 0 16M12 4c-2.5 2.6-2.5 13.4 0 16" /></> },
+];
 import { Subagents, subagentsOf } from "./components/Subagents";
 import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
 import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
@@ -155,7 +165,12 @@ export function App() {
   const [shells, setShells] = useState<ShellState>({});
   const shellsRef = useRef(shells);
   shellsRef.current = shells;
-  const [paneOpen, setPaneOpen] = useState(false);
+  const [pane, setPane] = useState<Tool | null>(null);
+  const paneOpen = pane !== null;
+  const setPaneOpen = (open: boolean) => setPane(open ? "terminal" : null);
+  // Which tools have been opened (they stay mounted after, so their state survives hiding).
+  const [toolsUsed, setToolsUsed] = useState<Tool[]>([]);
+  useEffect(() => { if (pane && !toolsUsed.includes(pane)) setToolsUsed([...toolsUsed, pane]); }, [pane]); // eslint-disable-line react-hooks/exhaustive-deps
   const [paneWidth, setPaneWidth] = usePersisted("zoo.paneWidth", 460);
   // With the terminal open the details panel steps aside (slim), unless you bring it back.
   const [railWithPane, setRailWithPane] = useState(false);
@@ -517,11 +532,14 @@ export function App() {
               {active.model && <span className="chip">{active.model}</span>}
               <ContextRing used={active.usage?.contextUsed} total={active.usage?.contextWindow} />
               {active.usage?.costUsd !== undefined && <span className="chip">${active.usage.costUsd.toFixed(2)}</span>}
-              <span className="topbar-tools">
-                <button className={`tool-btn ${paneOpen ? "on" : ""}`} aria-pressed={paneOpen} onClick={() => setPaneOpen(!paneOpen)}
-                  title={paneOpen ? "Hide the terminal" : `Open a terminal in ${active.info.cwd}`} aria-label="Terminal">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7l5 5-5 5M12 17h7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </button>
+              <span className="topbar-tools" role="toolbar" aria-label="Side tools">
+                {TOOLS.map((t) => (
+                  <button key={t.id} className={`tool-btn ${pane === t.id ? "on" : ""}`} aria-pressed={pane === t.id} onClick={() => setPane(pane === t.id ? null : t.id)}
+                    title={pane === t.id ? `Hide the ${t.label.toLowerCase()}` : t.id === "terminal" ? `Open a terminal in ${active.info.cwd}` : t.id === "files" ? `Files in ${active.info.cwd}` : "Open a browser beside the chat"}
+                    aria-label={t.label}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
+                  </button>
+                ))}
               </span>
             </div>
           </header>
@@ -573,8 +591,13 @@ export function App() {
         </>}
         </>}
         </div>
-        {Object.keys(shells).length > 0 || (paneOpen && active) ? (
-          <ShellPane visible={paneVisible} state={shells} sessionId={active?.info.id ?? null}
+        {toolsUsed.includes("files") && (
+          <FilesPane visible={paneVisible && pane === "files"} sessionId={active && !active.info.cloud ? active.info.id : null} folder={active?.info.cwd ?? ""}
+            refreshKey={`${active?.info.id}:${active?.running}`} width={paneWidth} setWidth={setPaneWidth} onHide={() => setPane(null)} />
+        )}
+        {toolsUsed.includes("browser") && <BrowserPane visible={paneVisible && pane === "browser"} width={paneWidth} setWidth={setPaneWidth} onHide={() => setPane(null)} />}
+        {Object.keys(shells).length > 0 || (pane === "terminal" && active) ? (
+          <ShellPane visible={paneVisible && pane === "terminal"} state={shells} sessionId={active?.info.id ?? null}
             folder={active?.info.cwd ?? ""} width={paneWidth} setWidth={setPaneWidth}
             onNew={newShell} onClose={closeShell} onHide={() => setPaneOpen(false)}
             onPick={(id) => activeId && setShells((prev) => ({ ...prev, [activeId]: { ...prev[activeId]!, current: id } }))} />
