@@ -29,6 +29,7 @@ import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 import { VOICE } from "./voice";
 import { desktopAlert, playSound, type AlertKind } from "./alerts";
+import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
 import logoUrl from "./assets/prompt-habitat-logo.png";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
@@ -480,6 +481,46 @@ export function App() {
   const railOpen = layout.right && (!paneVisible || railWithPane);
   const sessionLabel = (s: Session) => s.title ?? `${AGENT_NAMES[s.info.agent]} session`;
 
+  // The command palette (Ctrl+K, or Ctrl+Shift+P).
+  const [palette, setPalette] = useState(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && ((e.key.toLowerCase() === "k" && !e.shiftKey) || (e.key.toLowerCase() === "p" && e.shiftKey))) { e.preventDefault(); setPalette((p) => !p); }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  const paletteItems = (): PaletteItem[] => {
+    const folderOf = (cwd: string) => cwd.split("/").filter(Boolean).pop() ?? cwd;
+    const items: PaletteItem[] = [];
+    for (const x of list) items.push({ id: `s:${x.info.id}`, group: "Open sessions", label: sessionLabel(x), hint: `${AGENT_NAMES[x.info.agent]} · ${folderOf(x.info.cwd)}`, run: () => selectSession(x.info.id) });
+    for (const p of dormant) items.push({ id: `k:${keyOf(p)}`, group: "Open sessions", label: p.title, hint: `${AGENT_NAMES[p.agent]} · ${folderOf(p.cwd)} · asleep`, run: () => resumePast(p) });
+    const act = (id: string, label: string, run: () => void, hint?: string, keywords?: string) => items.push({ id: `a:${id}`, group: "Actions", label, run, hint, keywords });
+    act("new", "New session", () => { setActiveId(null); setShowSettings(false); }, undefined, "home start");
+    act("folder", "Open a folder…", async () => { const f = await window.agents.pickFolder(); if (f) start(leadAgent, { cwd: f }); }, `with ${AGENT_NAMES[leadAgent]}`, "project new");
+    act("browse", browsing ? "Hide all sessions" : "Show all sessions", () => setBrowsing(!browsing), undefined, "history past saved drawer");
+    if (active) {
+      for (const t of TOOLS) act(`tool-${t.id}`, pane === t.id ? `Hide the ${t.label.toLowerCase()}` : `Show the ${t.label.toLowerCase()}`, () => setPane(pane === t.id ? null : t.id), "side panel");
+      if (!active.info.cloud) act("view", active.view === "gui" ? "Switch to Terminal view" : "Switch to Chat view", () => switchView(active.info.id, active.view === "gui" ? "terminal" : "gui"), undefined, "tui");
+      if (active.running) act("stop", "Stop the agent", stop, "Esc", "interrupt cancel");
+      act("close", "Remove this session from the sidebar", () => removeOpen(active.info.id), undefined, "close end");
+    }
+    act("left", layout.left ? "Hide the sessions panel" : "Show the sessions panel", () => setLayout({ left: !layout.left }), undefined, "sidebar");
+    if (active) act("right", railOpen ? "Hide the details panel" : "Show the details panel", () => setLayout({ right: !railOpen }), undefined, "usage plan subagents rail");
+    act("settings", "Settings", () => setShowSettings(true), undefined, "preferences options");
+    for (const t of ["system", "light", "dark"] as const) if (settings.theme !== t) act(`theme-${t}`, `Theme: ${t[0]!.toUpperCase()}${t.slice(1)}`, () => setSettings({ ...settings, theme: t }), undefined, "appearance mode");
+    act("alerts", settings.alerts === "off" ? "Turn desktop alerts on" : "Turn desktop alerts off", () => setSettings({ ...settings, alerts: settings.alerts === "off" ? "background" : "off" }), undefined, "notifications");
+    // Project folders: start any agent there.
+    const folders = [...new Map(past.filter((p) => !p.cloud).map((p) => [p.cwd, p])).keys()].slice(0, 40);
+    for (const f of folders) for (const a of ["claude", "codex", "grok"] as const) {
+      items.push({ id: `f:${a}:${f}`, group: "Start in a folder", label: `${AGENT_NAMES[a]} in ${folderOf(f)}`, hint: f, searchOnly: true, run: () => start(a, { cwd: f }) });
+    }
+    for (const p of past) if (!list.some((x) => nativeKey(x) === keyOf(p)) && !dormant.includes(p)) {
+      items.push({ id: `p:${keyOf(p)}`, group: "Saved conversations", label: p.title, hint: `${AGENT_NAMES[p.agent]} · ${folderOf(p.cwd)}`, searchOnly: true, run: () => resumePast(p) });
+    }
+    return items;
+  };
+
   return (
     <div className={`app ${layout.left ? "" : "no-left"} ${!active || showSettings ? "no-rail" : railOpen ? "" : "slim-right"}`}
       data-skin={settings.skin === "agent" ? agent : settings.skin}
@@ -488,6 +529,7 @@ export function App() {
         <aside className="sidebar">
           <div className="sidebar-head">
             <div className="brand"><img src={logoUrl} alt="" width={32} height={32} />Prompt Habitat</div>
+            <button className="icon-btn" onClick={() => setPalette(true)} aria-label="Search (Ctrl+K)" title="Search sessions, folders and actions (Ctrl+K)">⌕</button>
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>
           <button className="new-session" onClick={() => { setActiveId(null); setShowSettings(false); }}>+ New session</button>
@@ -673,6 +715,7 @@ export function App() {
           onPin={(path) => { setPinned([...new Set([...pinned, path])]); setNavFolded(navFolded.filter((k) => k !== path)); }} onOpenCloud={openCloud} onCloudTask={setCloudTask}
           onDismiss={() => setBrowsing(false)} />
       )}
+      {palette && <CommandPalette items={paletteItems()} onClose={() => setPalette(false)} />}
       {update.status === "ready" && !updateLater && (
         <UpdatePrompt update={update} busy={busyCount} extras={updateExtras} waiting={updateWaiting}
           onUpdate={() => (busyCount ? setUpdateWaiting(true) : installNow())}
