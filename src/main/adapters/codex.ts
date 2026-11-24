@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent, PermissionOption } from "@shared/events";
 import type { AgentSession } from "./claude";
 import { CodexMapper } from "./codex-mapper";
+import { mergeCommands, type ModelOption } from "@shared/commands";
 
 type Json = Record<string, any>;
 
@@ -18,6 +19,8 @@ export class CodexSession implements AgentSession {
   private ready: Promise<string>;
   private stderr = "";
   private closing = false;
+  private model: string | undefined;
+  private effort: string | undefined;
 
   /** `resume`: a thread id to continue, "latest" for the newest thread in this folder, or nothing for a new thread. */
   constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "codex") {
@@ -68,7 +71,20 @@ export class CodexSession implements AgentSession {
     // The configured model can be one the account can't use, so start on the server's default.
     const models = await this.rpc("model/list", {});
     const list: Json[] = models.data ?? models.models ?? [];
-    const model = list.find((m) => m.isDefault)?.id ?? list[0]?.id;
+    const visible = list.filter((m) => !m.hidden);
+    const def = list.find((m) => m.isDefault);
+    const model = def?.id ?? list[0]?.id;
+    this.model = model;
+    this.effort = def?.defaultReasoningEffort;
+    const options: ModelOption[] = visible.map((m) => ({
+      id: m.id, label: m.displayName ?? m.id, description: m.description,
+      efforts: (m.supportedReasoningEfforts ?? []).map((e: Json) => e.reasoningEffort),
+    }));
+    this.emit({ kind: "models", models: options, current: model, effort: this.effort });
+    this.emit({ kind: "commands", commands: mergeCommands("codex", [
+      { name: "compact", description: "Summarize the conversation to free up context", run: "action" },
+      { name: "new", description: "Start a new conversation in this session", run: "action" },
+    ]) });
     const withModel = model ? { model } : {};
     let threadId = this.resume;
     if (threadId === "latest") {
@@ -90,11 +106,38 @@ export class CodexSession implements AgentSession {
     this.emit({ kind: "user.message", id: randomUUID(), text });
     this.emit({ kind: "turn.started" });
     this.ready
-      .then((threadId) => this.rpc("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }] }))
+      .then((threadId) => this.rpc("turn/start", {
+        threadId: this.mapper.threadId ?? threadId, input: [{ type: "text", text, text_elements: [] }],
+        ...(this.model ? { model: this.model } : {}), ...(this.effort ? { effort: this.effort } : {}),
+      }))
       .catch((err) => {
         this.emit({ kind: "error", message: err.message });
         this.emit({ kind: "turn.done", ok: false, error: err.message });
       });
+  }
+
+  /** Codex has no command parser over this protocol, so commands map to methods. */
+  slash(name: string, _args: string) {
+    this.ready.then(async () => {
+      const threadId = this.mapper.threadId;
+      if (name === "compact" && threadId) {
+        await this.rpc("thread/compact/start", { threadId });
+        this.emit({ kind: "notice", text: "Compacting the conversation to free up context." });
+      } else if (name === "new") {
+        const res = await this.rpc("thread/start", { cwd: this.cwd, ...(this.model ? { model: this.model } : {}) });
+        this.mapper.threadId = res.thread.id;
+        this.emit({ kind: "notice", text: "Started a new conversation." });
+      } else {
+        this.emit({ kind: "error", message: `/${name} isn't available in the chat view. Use the Terminal tab for it.` });
+      }
+    }).catch((err) => this.emit({ kind: "error", message: err.message }));
+  }
+
+  /** Codex takes model and effort with every turn, so a change applies from the next message. */
+  setModel(model?: string, effort?: string) {
+    if (model) this.model = model;
+    if (effort) this.effort = effort;
+    this.emit({ kind: "models", models: [], current: this.model, effort: this.effort });
   }
 
   respond(permissionId: string, decision: PermissionOption["id"]) {

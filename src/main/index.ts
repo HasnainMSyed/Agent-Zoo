@@ -33,6 +33,9 @@ function createWindow() {
   if (shot) {
     win.webContents.once("did-finish-load", () => {
       setTimeout(async () => {
+        // AGENTS_GUI_SCREENSHOT_JS: optional script run in the page first (e.g. to type into the input box).
+        const js = process.env.AGENTS_GUI_SCREENSHOT_JS;
+        if (js) { await win!.webContents.executeJavaScript(js).catch(() => {}); await new Promise((r) => setTimeout(r, 600)); }
         const img = await win!.webContents.capturePage();
         writeFileSync(shot, img.toPNG());
         app.quit();
@@ -44,7 +47,7 @@ function createWindow() {
 ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string) => manager.create(agent, cwd));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));
 ipcMain.handle("session:close", (_e, id: string) => manager.close(id));
-ipcMain.handle("session:view", (_e, id: string, view: "gui" | "terminal", cols?: number, rows?: number) => manager.setView(id, view, cols, rows));
+ipcMain.handle("session:view", (_e, id: string, view: "gui" | "terminal", cols?: number, rows?: number, typeOnOpen?: string) => manager.setView(id, view, cols, rows, typeOnOpen));
 ipcMain.on("term:input", (_e, id: string, data: string) => manager.termInput(id, data));
 ipcMain.on("term:resize", (_e, id: string, cols: number, rows: number) => manager.termResize(id, cols, rows));
 ipcMain.handle("dialog:pickFolder", async () => {

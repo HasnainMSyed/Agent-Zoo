@@ -1,6 +1,7 @@
 // Turns the AgentEvent stream into transcript items and session status.
 
 import type { AgentEvent, DiffHunk, PermissionOption, SessionInfo, ToolKind, ToolResult } from "@shared/events";
+import type { ModelOption, SlashCommand } from "@shared/commands";
 
 export type MascotState = "idle" | "thinking" | "working" | "waiting" | "done" | "error";
 
@@ -25,9 +26,12 @@ export interface Session {
   hooks: number;
   exited: boolean;
   view: "gui" | "terminal";
+  commands: SlashCommand[];
+  models: ModelOption[];
+  effort?: string;
 }
 
-export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui" });
+export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui", commands: [], models: [] });
 
 /** Finds the list an item belongs in: top level, or inside its parent subagent card. */
 function container(items: Item[], parentToolId?: string): Item[] {
@@ -124,5 +128,9 @@ export function apply(s: Session, e: AgentEvent): Session {
     case "notice":
       items.push({ type: "notice", id: `notice-${++turnSeq}`, text: e.text });
       return { ...s, items };
+    case "commands": return { ...s, commands: e.commands };
+    case "models":
+      // An empty list only updates the current choice (Codex sends this after a change).
+      return { ...s, models: e.models.length ? e.models : s.models, model: e.current ?? s.model, effort: e.effort ?? s.effort };
   }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentId, PermissionOption } from "@shared/events";
+import type { AgentId, PermissionOption, SessionCommand } from "@shared/events";
 import { apply, newSession, type Session } from "./state";
 import { packFor } from "./mascots";
 import { Mascot, mascotLabel } from "./components/Mascot";
@@ -67,14 +67,19 @@ export function App() {
   const decide = (permId: string, d: PermissionOption["id"]) => { if (activeId) window.agents.command(activeId, { kind: "permission", id: permId, decision: d }); };
   const send = (text: string) => { if (activeId) window.agents.command(activeId, { kind: "send", text }); };
   const stop = () => { if (activeId) window.agents.command(activeId, { kind: "interrupt" }); };
-  const switchView = async (id: string, view: "gui" | "terminal") => {
-    if (view === "gui") clearTerminalBuffer(id);
-    try { await window.agents.setView(id, view); }
-    catch (err) {
-      const message = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err);
-      setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, { kind: "error", message }) } : prev));
-    }
+  const showError = (id: string, err: unknown) => {
+    const message = err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err);
+    setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, { kind: "error", message }) } : prev));
   };
+  const switchView = async (id: string, view: "gui" | "terminal", typeOnOpen?: string) => {
+    if (view === "gui") clearTerminalBuffer(id);
+    try {
+      // An app window left open across an update can run a newer page against an older bridge.
+      if (typeof window.agents.setView !== "function") throw new Error("Agent Zoo was updated while it was open. Quit it and start it again to finish updating.");
+      await window.agents.setView(id, view, undefined, undefined, typeOnOpen);
+    } catch (err) { showError(id, err); }
+  };
+  const runCommand = (id: string, cmd: SessionCommand) => { window.agents.command(id, cmd).catch((err) => showError(id, err)); };
   const closeSession = (id: string) => {
     window.agents.closeSession(id);
     setSessions((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -147,6 +152,13 @@ export function App() {
         <Transcript items={active?.items ?? []} onDecide={decide} empty={empty} />
         {active && (
           <Composer running={active.running} disabled={active.exited} onSend={send} onStop={stop}
+            commands={active.commands} models={active.models} model={active.model} effort={active.effort}
+            onCommand={(cmd, args) => {
+              const typed = `/${cmd.name}${args ? " " + args : ""}`;
+              if (cmd.run === "terminal") switchView(active.info.id, "terminal", typed + "\r");
+              else runCommand(active.info.id, { kind: "slash", name: cmd.name, args });
+            }}
+            onPickModel={(model, effort) => runCommand(active.info.id, { kind: "setModel", model, effort })}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />
         )}

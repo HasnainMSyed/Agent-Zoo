@@ -1,5 +1,7 @@
 // The normalized event model every agent adapter emits. See PLAN.md §3.
 
+import type { ModelOption, SlashCommand } from "./commands";
+
 export type AgentId = "claude" | "codex" | "grok";
 export type ToolKind = "shell" | "edit" | "read" | "search" | "web" | "subagent" | "todo" | "mcp" | "other";
 
@@ -38,6 +40,8 @@ export type AgentEvent =
   | { kind: "turn.started" }
   | { kind: "turn.done"; ok: boolean; durationMs?: number; error?: string }
   | { kind: "error"; message: string }
+  | { kind: "commands"; commands: SlashCommand[] }
+  | { kind: "models"; models: ModelOption[]; current?: string; effort?: string }
   | { kind: "view"; view: "gui" | "terminal" }
   | { kind: "notice"; text: string }
   | { kind: "exited"; code: number | null };
@@ -46,7 +50,9 @@ export type AgentEvent =
 export type SessionCommand =
   | { kind: "send"; text: string }
   | { kind: "permission"; id: string; decision: PermissionOption["id"] }
-  | { kind: "interrupt" };
+  | { kind: "interrupt" }
+  | { kind: "slash"; name: string; args: string }
+  | { kind: "setModel"; model?: string; effort?: string };
 
 export interface SessionInfo {
   id: string; // GUI-side id

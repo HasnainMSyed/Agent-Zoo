@@ -1,6 +1,7 @@
 // Pure translation from Grok's ACP stream (`grok agent stdio`, docs/PROTOCOLS.md) to AgentEvents.
 
 import type { AgentEvent, DiffHunk, PermissionOption, ToolKind, ToolResult } from "@shared/events";
+import { mergeCommands, type ModelOption, type SlashCommand } from "@shared/commands";
 
 type Json = Record<string, any>;
 
@@ -69,8 +70,6 @@ export class GrokMapper {
   private totals = { input: 0, output: 0, ticks: 0 };
   model: string | undefined;
   sessionId: string | undefined;
-  /** Slash commands Grok advertises; used by the slash command menu. */
-  commands: { name: string; description: string; hint?: string }[] = [];
   /** JSON-RPC request ids the session should reject; drained by the session after each feed. */
   unsupported: (number | string)[] = [];
 
@@ -92,9 +91,14 @@ export class GrokMapper {
     if (p.sessionId) this.sessionId = p.sessionId;
     switch (msg.method) {
       case "_x.ai/models/update": {
-        const current = (p.availableModels ?? []).find((m: Json) => m.modelId === p.currentModelId);
+        const all: Json[] = p.availableModels ?? [];
+        const current = all.find((m) => m.modelId === p.currentModelId);
         this.contextWindow = current?._meta?.totalContextTokens ?? this.contextWindow;
-        return this.start(p.currentModelId);
+        const models: ModelOption[] = all.map((m) => ({
+          id: m.modelId, label: m.name ?? m.modelId, description: m.description,
+          efforts: (m._meta?.reasoningEfforts ?? []).map((e: Json) => e.id ?? e.value),
+        }));
+        return [...this.start(p.currentModelId), { kind: "models", models, current: p.currentModelId, effort: current?._meta?.reasoningEffort }];
       }
       case "session/update": return this.update(u);
       case "_x.ai/session_notification": return this.notification(u);
@@ -142,9 +146,10 @@ export class GrokMapper {
       case "tool_call_update": return this.toolUpdate(u);
       case "plan":
         return [{ kind: "plan.updated", items: (u.entries ?? []).map((e: Json) => ({ text: String(e.content ?? ""), status: e.status === "completed" ? "done" : e.status === "in_progress" ? "active" : "pending" })) }];
-      case "available_commands_update":
-        this.commands = (u.availableCommands ?? []).map((c: Json) => ({ name: c.name, description: c.description ?? "", hint: c.input?.hint }));
-        return [];
+      case "available_commands_update": {
+        const own: SlashCommand[] = (u.availableCommands ?? []).map((c: Json) => ({ name: c.name, description: c.description ?? "", hint: c.input?.hint, run: "send" as const }));
+        return [{ kind: "commands", commands: mergeCommands("grok", own) }];
+      }
       default: return [];
     }
   }

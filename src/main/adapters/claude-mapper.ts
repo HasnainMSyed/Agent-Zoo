@@ -2,6 +2,7 @@
 // Kept free of process I/O so it can be tested by replaying fixtures.
 
 import type { AgentEvent, DiffHunk, PermissionOption, ToolKind, ToolResult } from "@shared/events";
+import { mergeCommands, type ModelOption, type SlashCommand } from "@shared/commands";
 
 type Json = Record<string, any>;
 
@@ -76,10 +77,19 @@ export class ClaudeMapper {
   private contextUsed = 0;
   private contextWindow: number | undefined;
 
+  private ownCommands: SlashCommand[] = [];
+  private terminalCommands: string[] = [];
+
+  /** Commands as the "/" menu shows them; re-sent when Claude reports which are terminal-only. */
+  private commandsEvent(): AgentEvent {
+    return { kind: "commands", commands: mergeCommands("claude", this.ownCommands, this.terminalCommands) };
+  }
+
   feed(msg: Json): AgentEvent[] {
     const parent: string | undefined = msg.parent_tool_use_id ?? undefined;
     switch (msg.type) {
-      case "system": return this.system(msg);
+      case "control_response": return this.initialized(msg.response?.response);
+      case "system": return [...(msg.subtype === "init" && Array.isArray(msg.terminal_slash_commands) ? this.initTerminal(msg.terminal_slash_commands) : []), ...this.system(msg)];
       case "stream_event": return this.stream(msg.event, parent);
       case "assistant": return this.assistant(msg, parent);
       case "user": return this.user(msg);
@@ -87,6 +97,24 @@ export class ClaudeMapper {
       case "result": return this.result(msg);
       default: return [];
     }
+  }
+
+  /** The reply to our initialize request lists every command and model the session offers. */
+  private initialized(r: Json | undefined): AgentEvent[] {
+    if (!r || !Array.isArray(r.commands)) return [];
+    this.ownCommands = r.commands.map((c: Json): SlashCommand => ({
+      name: c.name, description: c.description ?? "", hint: c.argumentHint || undefined,
+      run: c.name === "model" ? "model" : c.name === "effort" ? "effort" : "send",
+    }));
+    const models: ModelOption[] = (r.models ?? []).map((m: Json) => ({
+      id: m.value, label: m.displayName ?? m.value, description: m.description, efforts: m.supportsEffort ? m.supportedEffortLevels : undefined,
+    }));
+    return [this.commandsEvent(), { kind: "models", models }];
+  }
+
+  private initTerminal(names: string[]): AgentEvent[] {
+    this.terminalCommands = names;
+    return this.ownCommands.length ? [this.commandsEvent()] : [];
   }
 
   private system(msg: Json): AgentEvent[] {

@@ -9,6 +9,10 @@ import { ClaudeMapper, controlRequest, userMessage } from "./claude-mapper";
 
 export interface AgentSession {
   send(text: string): void;
+  /** Runs a command the agent handles itself (Claude and Grok take it as a message; Codex maps it to a method). */
+  slash(name: string, args: string): void;
+  /** Agents that can change model between turns without a restart implement this. */
+  setModel?(model?: string, effort?: string): void;
   respond(permissionId: string, decision: PermissionOption["id"]): void;
   interrupt(): void;
   close(): void;
@@ -26,9 +30,10 @@ export class ClaudeSession implements AgentSession {
   private closing = false;
 
   /** `sessionId` is chosen by the app so the Terminal view can always resume the same conversation. */
-  constructor(cwd: string, private emit: (e: AgentEvent) => void, opts: { sessionId: string; resume: boolean }, bin = "claude") {
+  constructor(cwd: string, private emit: (e: AgentEvent) => void, opts: { sessionId: string; resume: boolean; model?: string; effort?: string }, bin = "claude") {
     const idArgs = opts.resume ? ["--resume", opts.sessionId] : ["--session-id", opts.sessionId];
-    this.proc = spawn(bin, [...CLAUDE_ARGS, ...idArgs], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    const modelArgs = [...(opts.model ? ["--model", opts.model] : []), ...(opts.effort ? ["--effort", opts.effort] : [])];
+    this.proc = spawn(bin, [...CLAUDE_ARGS, ...idArgs, ...modelArgs], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
     this.proc.on("error", (err) => this.emit({ kind: "error", message: `Couldn't start Claude Code: ${err.message}. Check that \`claude\` is on your PATH.` }));
     this.proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
     this.proc.on("exit", (code) => {
@@ -57,6 +62,8 @@ export class ClaudeSession implements AgentSession {
     this.emit({ kind: "turn.started" });
     this.write(userMessage(text));
   }
+
+  slash(name: string, args: string) { this.send(`/${name}${args ? " " + args : ""}`); }
 
   respond(permissionId: string, decision: PermissionOption["id"]) {
     this.write(this.mapper.permissionResponse(permissionId, decision));

@@ -84,7 +84,8 @@ Each adapter maps its agent's native tool names onto `ToolKind`, so a single `Ed
 ### Two views per session (decided 2026-11-24)
 Every session has a **Graphical** view and a **Terminal** view of the same conversation. The Terminal tab runs the real `claude --resume <id>`, `codex resume <id>` or `grok --resume <id>` in an embedded terminal (xterm.js and node-pty), so no feature of any agent is ever lost. Switching tabs closes one process and resumes the session in the other, because only one may drive a session at a time. Graphical controls for popular terminal-only commands (model and effort pickers first, then MCP and plugins) get added over time. This is the first item in Phase 4. ✅ Built 2026-11-24 (Chat / Terminal switch in the top bar).
 
-### Slash commands (requirement, for each agent)
+### Slash commands (requirement, for each agent) — "/" menu built 2026-11-24
+Built: typing `/` lists the agent's own commands (Claude: from its initialize reply; Grok: `available_commands_update`; Codex: `/compact`, `/new` mapped to methods), plus model and effort pickers, plus menu-style commands marked "Opens in Terminal", which switch to the Terminal view and type the command there. Model and effort: Codex applies them on the next turn; Claude and Grok restart the chat process on the same conversation with `--model`/`--effort`.
 Typing `/` in the input box must offer each agent's own commands, and running one must work as it does in that agent's terminal UI. Claude lists them in `system:init.slash_commands` and runs a command sent as user text. Grok sends ACP `available_commands_update`. Codex has no command list over the protocol, so the GUI maps its commands to app-server methods (for example `thread/compact/start`, `model/list`, `thread/fork`). The design gets worked out with the user while each adapter is built.
 
 ## 5. Themes (token JSON → CSS variables; light and dark each)

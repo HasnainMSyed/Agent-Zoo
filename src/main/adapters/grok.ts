@@ -20,9 +20,10 @@ export class GrokSession implements AgentSession {
   private closing = false;
 
   /** `resume`: a session id to continue, "latest" for the newest session in this folder, or nothing for a new one. */
-  constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "grok") {
+  constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, opts: { model?: string; effort?: string } = {}, bin = "grok") {
     this.mapper = new GrokMapper(cwd);
-    this.proc = spawn(bin, ["agent", "stdio"], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    const modelArgs = [...(opts.model ? ["-m", opts.model] : []), ...(opts.effort ? ["--reasoning-effort", opts.effort] : [])];
+    this.proc = spawn(bin, ["agent", ...modelArgs, "stdio"], { cwd, env: agentEnv(), stdio: ["pipe", "pipe", "pipe"] });
     this.proc.on("error", (err) => this.emit({ kind: "error", message: `Couldn't start Grok: ${err.message}. Check that \`grok\` is on your PATH.` }));
     this.proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
     this.proc.on("exit", (code) => {
@@ -94,6 +95,8 @@ export class GrokSession implements AgentSession {
         for (const e of this.mapper.endTurn("error")) this.emit(e);
       });
   }
+
+  slash(name: string, args: string) { this.send(`/${name}${args ? " " + args : ""}`); }
 
   respond(permissionId: string, decision: PermissionOption["id"]) {
     const res = this.mapper.permissionResponse(permissionId, decision);

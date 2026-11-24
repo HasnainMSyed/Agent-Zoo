@@ -30,6 +30,10 @@ interface Entry {
   nativeId?: string; // the agent's own session id (Claude's is chosen by us up front)
   hadTurn: boolean;
   usedTerminal: boolean;
+  running: boolean;
+  model?: string;  // chosen in the picker; Claude and Grok apply it by restarting on the same conversation
+  effort?: string;
+  pendingType?: () => void; // types a queued command once the terminal interface first draws
 }
 
 /** Claude stores a conversation once it has a message; resuming an empty one fails. */
@@ -44,7 +48,7 @@ export class SessionManager {
 
   create(agent: AgentId, cwd: string): SessionInfo {
     const info: SessionInfo = { id: randomUUID(), agent, cwd, title: basename(cwd) };
-    const entry: Entry = { info, view: "gui", gen: 0, hadTurn: false, usedTerminal: false, nativeId: agent === "claude" ? randomUUID() : undefined };
+    const entry: Entry = { info, view: "gui", gen: 0, hadTurn: false, usedTerminal: false, running: false, nativeId: agent === "claude" ? randomUUID() : undefined };
     this.sessions.set(info.id, entry);
     this.startGui(entry);
     return info;
@@ -56,6 +60,8 @@ export class SessionManager {
       if (gen !== entry.gen) return;
       if (e.kind === "session.started" && entry.info.agent !== "claude") entry.nativeId = e.sessionId;
       if (e.kind === "user.message") entry.hadTurn = true;
+      if (e.kind === "turn.started") entry.running = true;
+      if (e.kind === "turn.done" || e.kind === "exited") entry.running = false;
       this.sink.event(entry.info.id, e);
     };
   }
@@ -65,25 +71,57 @@ export class SessionManager {
     const emit = this.emitFor(entry);
     const replay = process.env.AGENTS_GUI_REPLAY;
     if (replay) { entry.agent = new ReplaySession(replay, agent, emit); return; }
+    const { model, effort } = entry;
     if (agent === "claude") {
-      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume: claudeHasHistory(cwd, entry.nativeId!) });
+      entry.agent = new ClaudeSession(cwd, emit, { sessionId: entry.nativeId!, resume: claudeHasHistory(cwd, entry.nativeId!), model, effort });
       return;
     }
     // Codex and Grok: continue the known conversation, or the newest one if it began in the terminal.
     const resume = entry.nativeId && entry.hadTurn ? entry.nativeId : entry.usedTerminal ? "latest" : undefined;
-    entry.agent = agent === "codex" ? new CodexSession(cwd, emit, resume) : new GrokSession(cwd, emit, resume);
+    entry.agent = agent === "codex" ? new CodexSession(cwd, emit, resume) : new GrokSession(cwd, emit, resume, { model, effort });
+    if (agent === "codex" && (model || effort)) entry.agent.setModel?.(model, effort);
+  }
+
+  private setModel(entry: Entry, model?: string, effort?: string) {
+    if (model) entry.model = model;
+    if (effort) entry.effort = effort;
+    // Codex takes model and effort with each turn; the others restart on the same conversation.
+    if (entry.agent?.setModel) { entry.agent.setModel(model, effort); return; }
+    if (entry.running) throw new Error("Wait for the agent to finish, or stop it, before changing the model.");
+    entry.gen++;
+    entry.agent?.close();
+    const label = [model && `model ${model}`, effort && `${effort} effort`].filter(Boolean).join(" and ");
+    this.sink.event(entry.info.id, { kind: "notice", text: `Switched to ${label}. The conversation continues where it left off.` });
+    this.startGui(entry);
   }
 
   private terminalCommand(entry: Entry): [string, string[]] {
     const { agent, cwd } = entry.info;
     const id = entry.nativeId;
-    if (agent === "claude") return ["claude", claudeHasHistory(cwd, id!) ? ["--resume", id!] : ["--session-id", id!]];
+    const { model, effort } = entry;
+    if (agent === "claude") {
+      const flags = [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : [])];
+      return ["claude", [...(claudeHasHistory(cwd, id!) ? ["--resume", id!] : ["--session-id", id!]), ...flags]];
+    }
     const known = id && entry.hadTurn;
-    if (agent === "codex") return ["codex", known ? ["resume", id] : []];
-    return ["grok", known ? ["--resume", id] : []];
+    if (agent === "codex") {
+      const flags = [...(model ? ["-m", model] : []), ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : [])];
+      return ["codex", known ? ["resume", ...flags, id] : flags];
+    }
+    const flags = [...(model ? ["-m", model] : []), ...(effort ? ["--reasoning-effort", effort] : [])];
+    return ["grok", known ? [...flags, "--resume", id] : flags];
   }
 
-  setView(id: string, view: View, cols = 100, rows = 30) {
+  /** Types a command into the agent's terminal interface once it has drawn its first screen. */
+  private typeWhenReady(entry: Entry, text: string) {
+    const gen = entry.gen;
+    let sent = false;
+    const send = () => { if (!sent && gen === entry.gen) { sent = true; entry.term?.write(text); } };
+    entry.pendingType = () => setTimeout(send, 1200);
+    setTimeout(send, 6000); // fallback if the interface stays quiet
+  }
+
+  setView(id: string, view: View, cols = 100, rows = 30, typeOnOpen?: string) {
     const entry = this.sessions.get(id);
     if (!entry) throw new Error("That session has ended. Start a new one.");
     if (entry.view === view) return;
@@ -99,10 +137,17 @@ export class SessionManager {
       const [cmd, args] = this.terminalCommand(entry);
       const gen = entry.gen;
       entry.term = new TerminalSession(cmd, args, entry.info.cwd, {
-        data: (chunk) => { if (gen === entry.gen) this.sink.termData(id, chunk); },
+        data: (chunk) => {
+          if (gen !== entry.gen) return;
+          this.sink.termData(id, chunk);
+          const typeNow = entry.pendingType;
+          entry.pendingType = undefined;
+          typeNow?.();
+        },
         // When the agent's terminal UI quits, come back to the graphical view.
         exit: () => { if (gen === entry.gen) this.setView(id, "gui"); },
       }, cols, rows);
+      if (typeOnOpen) this.typeWhenReady(entry, typeOnOpen);
     } else {
       entry.term?.close();
       entry.term = undefined;
@@ -121,6 +166,8 @@ export class SessionManager {
     if (cmd.kind === "send") s.agent.send(cmd.text);
     else if (cmd.kind === "permission") s.agent.respond(cmd.id, cmd.decision);
     else if (cmd.kind === "interrupt") s.agent.interrupt();
+    else if (cmd.kind === "slash") s.agent.slash(cmd.name, cmd.args);
+    else if (cmd.kind === "setModel") this.setModel(s, cmd.model, cmd.effort);
   }
 
   close(id: string) {

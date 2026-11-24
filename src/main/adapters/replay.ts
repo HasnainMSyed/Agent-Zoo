@@ -77,6 +77,7 @@ export class ReplaySession implements AgentSession {
   }
 
   send() {}
+  slash() {}
   respond() {}
   interrupt() {}
   close() { clearTimeout(this.timer); }
