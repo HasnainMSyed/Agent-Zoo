@@ -35,6 +35,8 @@ function ours(pid: number): boolean {
 /** Claude sessions running outside Agent Zoo, by conversation id. */
 export function liveClaudeElsewhere(): Map<string, LiveClaude> {
   const out = new Map<string, LiveClaude>();
+  // Telling the app's own agents apart needs /proc (Linux); elsewhere, report nothing rather than guess.
+  if (process.platform !== "linux") return out;
   const dir = join(homedir(), ".claude", "sessions");
   let names: string[];
   try { names = readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch { return out; }

@@ -1,17 +1,44 @@
-# Builds the Linux packages and publishes them as a GitHub release when a version tag (v0.2.0, …)
-# is pushed. Installed copies of Agent Zoo find the release and offer the update.
+# Builds Prompt Habitat for Linux, Windows and macOS.
+#  - Pushing a version tag (v0.3.0, …) publishes a GitHub release with every package; installed
+#    copies find it and offer the update.
+#  - Running it by hand ("Run workflow") is a test build: nothing is published, and the packages
+#    are kept as downloadable files on the run for a week.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  linux:
+  release:
+    # One release for the tag, made before the builds upload into it (so they don't race to create it).
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
+    steps:
+      - run: gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --title "Prompt Habitat ${TAG#v}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+
+  build:
+    needs: release
+    if: always() && (needs.release.result == 'success' || needs.release.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: --linux deb AppImage
+          - os: windows-latest
+            target: --win
+          - os: macos-latest
+            target: --mac
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +48,23 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npx electron-vite build && npx electron-builder --linux deb AppImage --publish always
+        if: runner.os == 'Linux'  # the tests use Linux things (/proc, symlinks)
+      - run: npx electron-vite build
+      - name: Package (and publish, for a tag)
+        run: npx electron-builder ${{ matrix.target }} --publish ${{ github.event_name == 'push' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Keep the test build
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-habitat-${{ runner.os }}
+          retention-days: 7
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/latest*.yml

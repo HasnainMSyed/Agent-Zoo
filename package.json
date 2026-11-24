@@ -12,7 +12,9 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "dist": "electron-vite build && electron-builder --linux deb AppImage --publish never"
+    "dist": "electron-vite build && electron-builder --linux deb AppImage --publish never",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -93,7 +95,44 @@
         "repo": "Agent-Zoo",
         "releaseType": "release"
       }
-    ]
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "executableName": "PromptHabitat"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Prompt Habitat",
+      "artifactName": "Prompt-Habitat-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "artifactName": "Prompt-Habitat-${version}-${arch}.${ext}"
+    }
   },
   "desktopName": "agent-zoo.desktop"
 }
