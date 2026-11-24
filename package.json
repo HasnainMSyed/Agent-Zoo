@@ -2,6 +2,7 @@
   "name": "agent-zoo",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "A desktop app for Claude Code, Codex and Grok, with mascots",
   "main": "out/main/index.js",
   "type": "module",

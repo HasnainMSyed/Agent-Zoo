@@ -75,3 +75,7 @@ Each mascot is a **pack**: a folder with `mascot.json` and `mascot.svg`. The SVG
 ## Disclaimer
 
 Agent Zoo is an independent project. It is not affiliated with or endorsed by Anthropic, OpenAI or xAI. Claude, Codex and Grok are trademarks of their respective owners. All mascots are original artwork.
+
+## License
+
+[MIT](LICENSE)
