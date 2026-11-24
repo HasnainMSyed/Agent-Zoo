@@ -16,8 +16,9 @@ const tidyPath = (cwd: string, home: string) => (home && cwd.startsWith(home) ? 
 
 interface Project { cwd: string; sessions: PastSession[]; updatedAt: number }
 
-export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder, onStart, onResume }: {
+export function HomeScreen({ home, past, loading, usage, lastAgent, onPickLead, onOpenFolder, onStart, onResume }: {
   home: string; past: PastSession[]; loading: boolean; usage: Partial<Record<AgentId, UsageLimits>>; lastAgent: AgentId;
+  onPickLead: (agent: AgentId) => void;
   onOpenFolder: () => Promise<string | null>;
   onStart: (agent: AgentId, cwd: string, prompt: string) => void;
   onResume: (s: PastSession) => void;
@@ -37,6 +38,8 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
 
   const [selected, setSelected] = useState<string | null>(null);
   const [agent, setAgent] = useState<AgentId>(lastAgent);
+  // The start card follows the lead mascot until you pick another agent on it.
+  useEffect(() => { setAgent(lastAgent); }, [lastAgent]);
   const [prompt, setPrompt] = useState("");
   const [recentOpen, setRecentOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -52,8 +55,13 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
   return (
     <div className="home">
       <div className="home-hero">
-        <div className="home-mascots" aria-hidden="true">
-          {AGENTS.map((a) => <span key={a} data-skin={a} className={a === lastAgent ? "lead" : ""}><Mascot pack={packFor(a)} state="idle" size={a === lastAgent ? 64 : 46} /></span>)}
+        <div className="home-mascots" role="radiogroup" aria-label="Lead agent">
+          {AGENTS.map((a) => (
+            <button key={a} role="radio" aria-checked={a === lastAgent} data-skin={a} className={a === lastAgent ? "lead" : ""}
+              onClick={() => onPickLead(a)} title={a === lastAgent ? `${AGENT_NAMES[a]} leads: new sessions start with it` : `Make ${AGENT_NAMES[a]} the lead`}>
+              <Mascot pack={packFor(a)} state="idle" size={a === lastAgent ? 64 : 46} />
+            </button>
+          ))}
         </div>
         <h1>{greeting()}</h1>
         <p>Pick up a project, or open a new one.</p>

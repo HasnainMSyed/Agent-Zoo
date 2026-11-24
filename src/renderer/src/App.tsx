@@ -10,7 +10,8 @@ import { HomeScreen } from "./components/HomeScreen";
 import { UsageDetails } from "./components/Usage";
 import { CommandPanel, modeLabel } from "./components/Panels";
 import { SettingsPage, initials } from "./components/SettingsPage";
-import { CloudTask, SessionSidebar } from "./components/SessionSidebar";
+import { CloudTask, SessionBrowser, SessionNav } from "./components/SessionSidebar";
+import { Subagents, subagentsOf } from "./components/Subagents";
 import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
 import type { PanelKind, PastSession, UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
@@ -63,6 +64,7 @@ export function App() {
   const [folded, setFolded] = usePersisted<string[]>("zoo.folded", []);
   const [expanded, setExpanded] = usePersisted<string[]>("zoo.expandedFolders", []);
   const [cloudTask, setCloudTask] = useState<PastSession | null>(null);
+  const [browsing, setBrowsing] = useState(false);
   const [sessions, setSessions] = useState<Record<string, Session>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
@@ -151,7 +153,9 @@ export function App() {
       window.agents.setView(active.info.id, "terminal", undefined, undefined, autoType.current ?? undefined);
     }
   }, [active]);
-  const agent: AgentId = active?.info.agent ?? "claude";
+  // With no session open, the app wears the lead agent's colours (the biggest mascot on the home screen).
+  const leadAgent: AgentId = settings.defaultAgent === "last" ? lastAgent : settings.defaultAgent;
+  const agent: AgentId = active?.info.agent ?? leadAgent;
   const pack = packFor(agent);
 
   const decide = (permId: string, d: PermissionOption["id"]) => { if (activeId) window.agents.command(activeId, { kind: "permission", id: permId, decision: d }); };
@@ -193,7 +197,8 @@ export function App() {
     </div>
   ) : (
     <>
-      <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={settings.defaultAgent === "last" ? lastAgent : settings.defaultAgent}
+      <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={leadAgent}
+        onPickLead={(a) => { setLastAgent(a); if (settings.defaultAgent !== "last") setSettings({ ...settings, defaultAgent: a }); }}
         onOpenFolder={() => window.agents.pickFolder()}
         onStart={(a, folder, prompt) => { start(a, { cwd: folder, prompt: prompt || undefined }); }}
         onResume={resumePast} />
@@ -214,9 +219,9 @@ export function App() {
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>
           <button className="new-session" onClick={() => { setActiveId(null); setShowSettings(false); }}>+ New session</button>
-          <SessionSidebar sessions={list} past={past} activeId={activeId} expanded={expanded} setExpanded={setExpanded} label={sessionLabel}
-            onSelect={(id) => { setActiveId(id); setShowSettings(false); }} onClose={closeSession}
-            onResume={resumePast} onOpenCloud={openCloud} onCloudTask={setCloudTask} />
+          <SessionNav sessions={list} activeId={activeId} label={sessionLabel} browsing={browsing}
+            savedCount={past.filter((p) => !list.some((s) => s.info.agent === p.agent && (s.nativeId ?? s.info.nativeId) === p.id)).length}
+            onSelect={(id) => { setActiveId(id); setShowSettings(false); }} onClose={closeSession} onBrowse={() => setBrowsing(!browsing)} />
           <button className={`profile-row ${showSettings ? "on" : ""}`} onClick={() => setShowSettings(!showSettings)} title="Settings">
             <span className="avatar" aria-hidden="true">{initials(settings.displayName || user)}</span>
             <span className="profile-name">{settings.displayName || user || "You"}</span>
@@ -227,6 +232,7 @@ export function App() {
         <aside className="sidebar-slim">
           <button className="icon-btn" onClick={() => setLayout({ left: true })} aria-label="Show the sessions panel" title="Show the sessions panel">»</button>
           <button className="icon-btn" onClick={() => { setActiveId(null); setShowSettings(false); }} aria-label="New session" title="New session">+</button>
+          <button className="icon-btn" onClick={() => setBrowsing(!browsing)} aria-label="All sessions" title="All sessions">☰</button>
           {list.map((s) => (
             <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => { setActiveId(s.info.id); setShowSettings(false); }} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
               <span className={`dot agent-${s.info.agent} ${s.status}`} aria-hidden="true" />
@@ -291,6 +297,16 @@ export function App() {
             summary={usage[active.info.agent]?.windows[0] ? `${usage[active.info.agent]!.windows[0]!.usedPct}%` : undefined}>
             <UsageDetails agent={active.info.agent} usage={usage[active.info.agent]} sessionCost={active.usage?.costUsd} />
           </RailSection>
+          {(() => {
+            const subs = subagentsOf(active.items);
+            const running = subs.filter((x) => x.state !== "done" && x.state !== "error").length;
+            return (
+              <RailSection title="Subagents" id="subagents" folded={folded} setFolded={setFolded}
+                summary={subs.length ? (running ? `${running} running` : `${subs.length}`) : undefined}>
+                <Subagents list={subs} pack={pack} />
+              </RailSection>
+            );
+          })()}
           <RailSection title="Plan" id="plan" folded={folded} setFolded={setFolded}
             summary={active.plan.length ? `${active.plan.filter((p) => p.status === "done").length}/${active.plan.length}` : undefined}>
             {active.plan.length
@@ -312,6 +328,11 @@ export function App() {
         <aside className="rail-slim">
           <button className="icon-btn" onClick={() => setLayout({ right: true })} aria-label="Show the details panel" title="Show the details panel">«</button>
         </aside>
+      )}
+      {browsing && (
+        <SessionBrowser sessions={list} past={past} activeId={activeId} expanded={expanded} setExpanded={setExpanded} label={sessionLabel}
+          onSelect={(id) => { setActiveId(id); setShowSettings(false); }} onResume={resumePast} onOpenCloud={openCloud} onCloudTask={setCloudTask}
+          onDismiss={() => setBrowsing(false)} />
       )}
       {cloudTask && <CloudTask task={cloudTask} onPickFolder={() => window.agents.pickFolder()} onClose={() => setCloudTask(null)} />}
     </div>

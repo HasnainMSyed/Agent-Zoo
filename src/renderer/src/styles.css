@@ -533,3 +533,43 @@ code, pre { font-family: var(--font-mono); font-size: 12.5px; }
 .usage-row-head .home-label { margin: 0; }
 .usage-row-head { border-top: 1px solid var(--line); padding-top: 14px; margin-bottom: -10px; }
 .usage-row-head + .usage-row { border-top: 0; padding-top: 0; }
+
+.home-mascots button { border: 0; background: none; padding: 0; opacity: .7; transition: transform .2s var(--ease), opacity .2s; }
+.home-mascots button.lead, .home-mascots button:hover { opacity: 1; }
+.home-mascots button:hover { transform: translateY(-3px); }
+
+/* Sidebar navigation: open sessions only */
+.browse-btn { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: none; color: var(--text); border-radius: var(--r-md); padding: 7px 10px; font-size: 13px; text-align: left; }
+.browse-btn:hover, .browse-btn.on { border-color: var(--accent); background: var(--surface-2); }
+.bb-label { flex: 1; }
+.bb-count { font-size: 11px; color: var(--muted); background: var(--surface-2); border-radius: 99px; padding: 0 7px; }
+.nav-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; padding: 6px 8px 2px; }
+.folder-label { font-size: 11.5px; color: var(--muted); font-weight: 600; padding: 6px 8px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-empty { padding: 10px 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.nav-empty p { margin: 0; }
+
+/* All-sessions drawer: slides out from the sidebar */
+.browser-backdrop { position: fixed; top: 0; bottom: 0; right: 0; left: 240px; z-index: 40; background: rgba(0, 0, 0, .28); animation: panel-in .15s var(--ease); }
+.app.no-left .browser-backdrop { left: 48px; }
+@media (max-width: 1100px) { .browser-backdrop { left: 220px; } }
+.session-browser { position: absolute; top: 0; bottom: 0; left: 0; width: min(380px, 90vw); display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; background: var(--sidebar); color: var(--text); border-right: 1px solid var(--line); box-shadow: 12px 0 40px rgba(0, 0, 0, .3); animation: drawer-in .2s var(--ease); }
+@keyframes drawer-in { from { transform: translateX(-24px); opacity: 0; } }
+.browser-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; font-size: 14px; }
+.browser-search { width: 100%; background: var(--canvas); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-md); padding: 7px 10px; font: inherit; font-size: 13px; }
+.browser-search:focus { outline: none; border-color: var(--accent); }
+.agent-tabs { display: flex; gap: 2px; background: var(--surface-2); border-radius: 999px; padding: 2px; }
+.agent-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; background: none; color: var(--muted); border-radius: 999px; padding: 4px 6px; font-size: 12px; white-space: nowrap; }
+.agent-tabs button[aria-selected="true"] { background: var(--canvas); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.tab-count { font-size: 10.5px; color: var(--muted); }
+.browser-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+
+/* Right panel: subagents, each with a small mascot */
+.subagents { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.subagent { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); }
+.subagent.done { opacity: .62; }
+.subagent.error { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+.subagent.waiting { border-color: var(--warn); }
+.subagent .mascot { flex: none; }
+.sa-text { display: flex; flex-direction: column; min-width: 0; }
+.sa-text strong { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sa-text span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
