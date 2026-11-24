@@ -44,7 +44,7 @@ function RailSection({ title, id, folded, setFolded, summary, children }: {
         <span className={`chev-small ${isFolded ? "" : "open"}`} aria-hidden="true">›</span>
         <h2>{title}</h2>{summary && <span className="rail-summary">{summary}</span>}
       </button>
-      {!isFolded && children}
+      <div className="fold" data-open={!isFolded}><div className="fold-inner">{children}</div></div>
     </section>
   );
 }
@@ -147,7 +147,7 @@ export function App() {
   const sessionLabel = (s: Session) => s.title ?? `${AGENT_NAMES[s.info.agent]} session`;
 
   return (
-    <div className={`app ${layout.left ? "" : "no-left"} ${layout.right && active ? "" : "no-right"}`} data-skin={agent}>
+    <div className={`app ${layout.left ? "" : "no-left"} ${!active ? "no-rail" : layout.right ? "" : "slim-right"}`} data-skin={agent}>
       {layout.left ? (
         <aside className="sidebar">
           <div className="sidebar-head">
@@ -166,16 +166,18 @@ export function App() {
                     <span className="folder-name">{folder.split("/").pop() || folder}</span>
                     <span className="folder-count">{items.length}</span>
                   </button>
-                  {!isFolded && items.map((s) => (
+                  <div className="fold" data-open={!isFolded}><div className="fold-inner">
+                  {items.map((s) => (
                     <div key={s.info.id} className={`session-row ${s.info.id === activeId ? "active" : ""}`}>
                       <button onClick={() => setActiveId(s.info.id)}>
-                        <span className={`dot ${s.status}`} aria-hidden="true" />
+                        <span className={`dot agent-${s.info.agent} ${s.status}`} aria-hidden="true" />
                         <span className="session-name">{sessionLabel(s)}</span>
                         <span className="session-agent">{AGENT_NAMES[s.info.agent]}{s.view === "terminal" ? " · Terminal" : ""}</span>
                       </button>
                       <button className="close" onClick={() => closeSession(s.info.id)} aria-label={`Close ${sessionLabel(s)}`}>×</button>
                     </div>
                   ))}
+                  </div></div>
                 </div>
               );
             })}
@@ -188,7 +190,7 @@ export function App() {
           <button className="icon-btn" onClick={() => setActiveId(null)} aria-label="New session" title="New session">+</button>
           {list.map((s) => (
             <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => setActiveId(s.info.id)} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
-              <span className={`dot ${s.status}`} aria-hidden="true" />
+              <span className={`dot agent-${s.info.agent} ${s.status}`} aria-hidden="true" />
             </button>
           ))}
         </aside>
@@ -209,8 +211,6 @@ export function App() {
               {active.model && <span className="chip">{active.model}</span>}
               <ContextRing used={active.usage?.contextUsed} total={active.usage?.contextWindow} />
               {active.usage?.costUsd !== undefined && <span className="chip">${active.usage.costUsd.toFixed(2)}</span>}
-              <button className="icon-btn" onClick={() => setLayout({ right: !layout.right })}
-                aria-label={layout.right ? "Hide the details panel" : "Show the details panel"} title={layout.right ? "Hide the details panel" : "Show the details panel"}>{layout.right ? "»" : "«"}</button>
             </div>
           </header>
         )}
@@ -233,6 +233,7 @@ export function App() {
 
       {active && layout.right && (
         <aside className="rail">
+          <div className="rail-top"><button className="icon-btn" onClick={() => setLayout({ right: false })} aria-label="Hide the details panel" title="Hide the details panel">»</button></div>
           <RailSection title="Plan" id="plan" folded={folded} setFolded={setFolded}
             summary={active.plan.length ? `${active.plan.filter((p) => p.status === "done").length}/${active.plan.length}` : undefined}>
             {active.plan.length
@@ -248,6 +249,11 @@ export function App() {
               <dt>Hooks run</dt><dd>{active.hooks}</dd>
             </dl>
           </RailSection>
+        </aside>
+      )}
+      {active && !layout.right && (
+        <aside className="rail-slim">
+          <button className="icon-btn" onClick={() => setLayout({ right: true })} aria-label="Show the details panel" title="Show the details panel">«</button>
         </aside>
       )}
     </div>

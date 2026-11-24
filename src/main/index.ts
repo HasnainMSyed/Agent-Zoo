@@ -4,6 +4,9 @@ import { writeFileSync } from "node:fs";
 import type { AgentId, SessionCommand } from "@shared/events";
 import { SessionManager } from "./session-manager";
 
+// Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
+if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath("temp"), `agent-zoo-test-${process.pid}`));
+
 let win: BrowserWindow | null = null;
 const manager = new SessionManager({
   event: (sessionId, event) => win?.webContents.send("session:event", sessionId, event),
