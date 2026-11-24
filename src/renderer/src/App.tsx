@@ -14,7 +14,7 @@ import { SettingsPage, initials } from "./components/SettingsPage";
 import { CloudTask, SessionBrowser, SessionNav, useDropTarget, type DragLoad } from "./components/SessionSidebar";
 import { ShellPane, type ShellState } from "./components/ShellPane";
 import { Subagents, subagentsOf } from "./components/Subagents";
-import { applySettings, loadSettings, saveSettings, withThemeTransition, type Settings } from "./settings";
+import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
 import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
@@ -87,13 +87,8 @@ export function App() {
   const [pastLoading, setPastLoading] = useState(true);
   const [usage, setUsage] = useState<Partial<Record<AgentId, UsageLimits>>>({});
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
-  const setSettings = (s: Settings) => {
-    const commit = () => { setSettingsState(s); saveSettings(s); };
-    // Colour changes (theme, skin, agent colours) cross-fade instead of cutting.
-    const looks = (x: Settings) => JSON.stringify([x.theme, x.skin, x.agentColors]);
-    if (looks(s) !== looks(settings)) withThemeTransition(commit); else commit();
-  };
-  // A layout effect, so the page is re-coloured inside a theme transition's update.
+  // Colour changes blend by themselves: the colour tokens are animatable (see "Theme blend" in styles.css).
+  const setSettings = (s: Settings) => { setSettingsState(s); saveSettings(s); };
   useLayoutEffect(() => { applySettings(settings); }, [settings]);
   // Mascot packs: the user's own (from the app's data folder) plus the choice per agent.
   const [packs, setPacks] = useState<MascotPack[]>(allPacks);
@@ -244,12 +239,7 @@ export function App() {
     if (todo.length) openMany(todo);
   };
   const slimDrop = useDropTarget(onDropLoad);
-  /** Switching to a session of another agent re-colours the app, so it fades across. */
-  const selectSession = (id: string) => {
-    const next = sessions[id];
-    const go = () => { setActiveId(id); setShowSettings(false); };
-    if (settings.skin === "agent" && next && next.info.agent !== agent) withThemeTransition(go); else go();
-  };
+  const selectSession = (id: string) => { setActiveId(id); setShowSettings(false); };
   const newShell = useCallback(async () => {
     const sid = activeId;
     if (!sid) return;
@@ -284,10 +274,7 @@ export function App() {
   ) : (
     <>
       <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={leadAgent}
-        onPickLead={(a, from) => withThemeTransition(() => {
-          setLastAgent(a);
-          if (settings.defaultAgent !== "last") { const s = { ...settings, defaultAgent: a }; setSettingsState(s); saveSettings(s); }
-        }, from)}
+        onPickLead={(a) => { setLastAgent(a); if (settings.defaultAgent !== "last") setSettings({ ...settings, defaultAgent: a }); }}
         onOpenFolder={() => window.agents.pickFolder()}
         onStart={(a, folder, prompt) => { start(a, { cwd: folder, prompt: prompt || undefined }); }}
         onResume={resumePast} />

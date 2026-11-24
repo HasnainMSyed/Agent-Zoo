@@ -656,7 +656,19 @@ body.resizing .shell-pane, body.resizing .main-col { pointer-events: none; }
 .pane-term[hidden] { display: none; }
 .pane-body .pad { padding: 14px; }
 
-/* Theme changes: a cross-fade, or a circle that spreads from the clicked mascot (see withThemeTransition) */
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .38s; animation-timing-function: var(--ease); }
-html.vt-reveal::view-transition-old(root), html.vt-reveal::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
-html.vt-reveal::view-transition-new(root) { z-index: 2; }
+/* Theme blend: the colour tokens are registered as colours, so a change of theme, skin or lead
+   mascot blends from the old palette into the new one instead of cutting. */
+@property --accent { syntax: "<color>"; inherits: true; initial-value: #d97757; }
+@property --accent-strong { syntax: "<color>"; inherits: true; initial-value: #c4613f; }
+@property --on-accent { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --canvas { syntax: "<color>"; inherits: true; initial-value: #fff; }
+@property --sidebar { syntax: "<color>"; inherits: true; initial-value: #fafafa; }
+@property --surface { syntax: "<color>"; inherits: true; initial-value: #f6f4f2; }
+@property --surface-2 { syntax: "<color>"; inherits: true; initial-value: #efece9; }
+@property --line { syntax: "<color>"; inherits: true; initial-value: #e6e1dc; }
+@property --text { syntax: "<color>"; inherits: true; initial-value: #161616; }
+@property --muted { syntax: "<color>"; inherits: true; initial-value: #6b6560; }
+@property --bubble { syntax: "<color>"; inherits: true; initial-value: #f4f2f3; }
+@property --link { syntax: "<color>"; inherits: true; initial-value: #184f95; }
+.app[data-skin] { transition: grid-template-columns .24s var(--ease), --accent .6s ease, --accent-strong .6s ease, --on-accent .6s ease, --canvas .6s ease, --sidebar .6s ease, --surface .6s ease, --surface-2 .6s ease, --line .6s ease, --text .6s ease, --muted .6s ease, --bubble .6s ease, --link .6s ease; }
+.home-start[data-skin] { transition: --accent .6s ease, --accent-strong .6s ease, --on-accent .6s ease, --canvas .6s ease, --sidebar .6s ease, --surface .6s ease, --surface-2 .6s ease, --line .6s ease, --text .6s ease, --muted .6s ease, --bubble .6s ease, --link .6s ease; }

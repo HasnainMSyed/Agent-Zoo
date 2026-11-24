@@ -1,7 +1,6 @@
 // App preferences, kept in this computer's local storage. Applied to the page by applySettings.
 
 import type { AgentId } from "@shared/events";
-import { flushSync } from "react-dom";
 
 export interface Settings {
   displayName: string;                 // empty = the computer's user name
@@ -48,25 +47,3 @@ export function applySettings(s: Settings) {
   root.classList.toggle("no-mascots", !s.showMascots);
 }
 
-/**
- * Runs a change that re-colours the app (theme, skin, lead mascot) as an animated transition:
- * the new colours spread out in a circle from where you clicked, or cross-fade when there's no
- * click. Skipped when motion is reduced or the browser can't do view transitions.
- */
-export function withThemeTransition(update: () => void, from?: { x: number; y: number }) {
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void>; finished: Promise<void> } };
-  const reduced = document.documentElement.classList.contains("reduce-motion") || matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (!doc.startViewTransition || reduced) { update(); return; }
-  const root = document.documentElement;
-  root.classList.toggle("vt-reveal", Boolean(from));
-  const t = doc.startViewTransition(() => flushSync(update));
-  t.finished.finally(() => root.classList.remove("vt-reveal")).catch(() => {});
-  if (!from) return;
-  const r = Math.hypot(Math.max(from.x, innerWidth - from.x), Math.max(from.y, innerHeight - from.y));
-  t.ready.then(() => {
-    root.animate(
-      { clipPath: [`circle(0px at ${from.x}px ${from.y}px)`, `circle(${r}px at ${from.x}px ${from.y}px)`] },
-      { duration: 650, easing: "cubic-bezier(.2, .8, .2, 1)", pseudoElement: "::view-transition-new(root)" },
-    );
-  }).catch(() => { /* transition skipped */ });
-}
