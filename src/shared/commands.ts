@@ -44,8 +44,18 @@ export interface UsageLimits {
   updatedAt: number;             // epoch ms
 }
 
+/** One agent's CLI as the Settings page shows it. Never holds a key or token. */
+export interface AccountInfo { installed: boolean; version?: string; signedIn?: boolean; method?: string; plan?: string; who?: string }
+
 /** A conversation saved by an agent, for the home screen and sidebar. */
-export interface PastSession { agent: "claude" | "codex" | "grok"; id: string; cwd: string; title: string; updatedAt: number }
+export interface PastSession {
+  agent: "claude" | "codex" | "grok"; id: string; cwd: string; title: string; updatedAt: number;
+  /** Written to within the last minute and a half: probably running in another terminal right now. */
+  liveElsewhere?: boolean;
+  /** A Codex Cloud task (runs on OpenAI's servers; `cwd` holds its environment's name). */
+  cloud?: boolean;
+  status?: string;
+}
 export interface ModelOption { id: string; label: string; description?: string; efforts?: string[] }
 
 /** Menu-style commands that only their terminal interface can show. */

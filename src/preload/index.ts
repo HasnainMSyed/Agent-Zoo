@@ -1,9 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AgentEvent, AgentId, SessionCommand, SessionInfo } from "@shared/events";
-import type { PastSession, UsageLimits } from "@shared/commands";
+import type { AccountInfo, PastSession, UsageLimits } from "@shared/commands";
 
 const api = {
-  createSession: (agent: AgentId, cwd: string, resumeId?: string): Promise<SessionInfo> => ipcRenderer.invoke("session:create", agent, cwd, resumeId),
+  createSession: (agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string): Promise<SessionInfo> => ipcRenderer.invoke("session:create", agent, cwd, resumeId, permissionMode, cloud),
+  cloudRun: (action: "diff" | "apply", taskId: string, cwd?: string): Promise<string> => ipcRenderer.invoke("cloud:run", action, taskId, cwd),
+  onSessionsChanged(cb: () => void) {
+    const listener = () => cb();
+    ipcRenderer.on("sessions:changed", listener);
+    return () => { ipcRenderer.removeListener("sessions:changed", listener); };
+  },
+  accounts: (): Promise<Record<AgentId, AccountInfo>> => ipcRenderer.invoke("app:accounts"),
+  /** Runs an agent's own sign-in or sign-out in a small terminal; returns its terminal id. */
+  accountRun: (agent: AgentId, action: "login" | "logout", cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("account:run", agent, action, cols, rows),
+  accountClose: (id: string): Promise<void> => ipcRenderer.invoke("account:close", id),
   usage: (): Promise<Partial<Record<AgentId, UsageLimits>>> => ipcRenderer.invoke("usage:get"),
   pastSessions: (fresh?: boolean): Promise<PastSession[]> => ipcRenderer.invoke("sessions:past", fresh),
   onUsage(cb: (all: Partial<Record<AgentId, UsageLimits>>) => void) {
@@ -16,7 +26,7 @@ const api = {
   query: (id: string, subtype: string, payload?: Record<string, unknown>): Promise<any> => ipcRenderer.invoke("session:query", id, subtype, payload),
   closeSession: (id: string): Promise<void> => ipcRenderer.invoke("session:close", id),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("dialog:pickFolder"),
-  info: (): Promise<{ home: string; cwd: string; autoStart: AgentId | null; autoView: "terminal" | null; autoPrompt: string | null; autoType: string | null }> => ipcRenderer.invoke("app:info"),
+  info: (): Promise<{ home: string; user: string; version: string; cwd: string; autoStart: AgentId | null; autoView: "terminal" | null; autoPrompt: string | null; autoType: string | null }> => ipcRenderer.invoke("app:info"),
   setView: (id: string, view: "gui" | "terminal", cols?: number, rows?: number, typeOnOpen?: string): Promise<void> => ipcRenderer.invoke("session:view", id, view, cols, rows, typeOnOpen),
   termInput: (id: string, data: string) => ipcRenderer.send("term:input", id, data),
   termResize: (id: string, cols: number, rows: number) => ipcRenderer.send("term:resize", id, cols, rows),

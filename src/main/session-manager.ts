@@ -50,14 +50,18 @@ export class SessionManager {
   constructor(private sink: Sink) {}
 
   /** Starts a session; `resumeId` reopens a conversation the agent saved earlier. */
-  create(agent: AgentId, cwd: string, resumeId?: string): SessionInfo {
-    const info: SessionInfo = { id: randomUUID(), agent, cwd, title: basename(cwd) };
+  create(agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string): SessionInfo {
+    if (cloud !== undefined && (agent !== "claude" || !/^[\w:/.?=&%-]{4,300}$/.test(cloud))) throw new Error("That doesn't look like a cloud session link or ID.");
+    const info: SessionInfo = { id: randomUUID(), agent, cwd, title: cloud ? "Cloud session" : basename(cwd), cloud };
     const entry: Entry = {
       info, view: "gui", gen: 0, hadTurn: Boolean(resumeId), usedTerminal: false, running: false,
       nativeId: resumeId ?? (agent === "claude" ? randomUUID() : undefined),
+      permissionMode: agent === "claude" && permissionMode && permissionMode !== "default" ? permissionMode : undefined,
     };
+    info.nativeId = entry.nativeId;
     this.sessions.set(info.id, entry);
-    this.startGui(entry);
+    // Cloud sessions only exist in Claude's own interface: the app opens them in the Terminal view (see setView).
+    if (!cloud) this.startGui(entry);
     return info;
   }
 
@@ -114,6 +118,7 @@ export class SessionManager {
     const { agent, cwd } = entry.info;
     const id = entry.nativeId;
     const { model, effort } = entry;
+    if (entry.info.cloud) return ["claude", ["--cloud", entry.info.cloud]];
     if (agent === "claude") {
       const mode = entry.permissionMode && entry.permissionMode !== "default" ? ["--permission-mode", entry.permissionMode] : [];
       const flags = [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...mode];
@@ -151,6 +156,7 @@ export class SessionManager {
     const entry = this.sessions.get(id);
     if (!entry) throw new Error("That session has ended. Start a new one.");
     if (entry.view === view) return;
+    if (entry.info.cloud && view === "gui") throw new Error("Cloud sessions open in the Terminal view only.");
     if (process.env.AGENTS_GUI_REPLAY) throw new Error("The Terminal view isn't available while replaying a recording.");
     entry.gen++;
     entry.view = view;
@@ -171,7 +177,11 @@ export class SessionManager {
           typeNow?.();
         },
         // When the agent's terminal UI quits, come back to the graphical view.
-        exit: () => { if (gen === entry.gen) this.setView(id, "gui"); },
+        exit: (code) => {
+          if (gen !== entry.gen) return;
+          if (entry.info.cloud) { entry.term = undefined; this.sink.event(id, { kind: "exited", code }); return; }
+          this.setView(id, "gui");
+        },
       }, cols, rows);
       if (typeOnOpen) this.typeWhenReady(entry, typeOnOpen);
     } else {
@@ -181,8 +191,20 @@ export class SessionManager {
     }
   }
 
-  termInput(id: string, data: string) { this.sessions.get(id)?.term?.write(data); }
-  termResize(id: string, cols: number, rows: number) { this.sessions.get(id)?.term?.resize(cols, rows); }
+  termInput(id: string, data: string) { (this.sessions.get(id)?.term ?? this.utilities.get(id))?.write(data); }
+  termResize(id: string, cols: number, rows: number) { (this.sessions.get(id)?.term ?? this.utilities.get(id))?.resize(cols, rows); }
+
+  /** Small terminals for one-off commands (signing in or out), not tied to a conversation. */
+  private utilities = new Map<string, TerminalSession>();
+  runUtility(cmd: string, args: string[], cols = 90, rows = 20, cwd = homedir()): string {
+    const id = `util-${randomUUID()}`;
+    this.utilities.set(id, new TerminalSession(cmd, args, cwd, {
+      data: (chunk) => this.sink.termData(id, chunk),
+      exit: (code) => { this.utilities.delete(id); this.sink.event(id, { kind: "exited", code }); },
+    }, cols, rows));
+    return id;
+  }
+  closeUtility(id: string) { this.utilities.get(id)?.close(); this.utilities.delete(id); }
 
   command(id: string, cmd: SessionCommand) {
     const s = this.sessions.get(id);
@@ -223,5 +245,6 @@ export class SessionManager {
 
   closeAll() {
     for (const id of [...this.sessions.keys()]) this.close(id);
+    for (const id of [...this.utilities.keys()]) this.closeUtility(id);
   }
 }

@@ -9,6 +9,9 @@ import { Composer } from "./components/Composer";
 import { HomeScreen } from "./components/HomeScreen";
 import { UsageDetails } from "./components/Usage";
 import { CommandPanel, modeLabel } from "./components/Panels";
+import { SettingsPage, initials } from "./components/SettingsPage";
+import { CloudTask, SessionSidebar } from "./components/SessionSidebar";
+import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
 import type { PanelKind, PastSession, UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
@@ -58,6 +61,8 @@ export function App() {
   const layout = layoutState;
   const setLayout = (patch: Partial<typeof layoutState>) => setLayoutState({ ...layoutState, ...patch });
   const [folded, setFolded] = usePersisted<string[]>("zoo.folded", []);
+  const [expanded, setExpanded] = usePersisted<string[]>("zoo.expandedFolders", []);
+  const [cloudTask, setCloudTask] = useState<PastSession | null>(null);
   const [sessions, setSessions] = useState<Record<string, Session>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
@@ -66,6 +71,12 @@ export function App() {
   const [past, setPast] = useState<PastSession[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
   const [usage, setUsage] = useState<Partial<Record<AgentId, UsageLimits>>>({});
+  const [settings, setSettingsState] = useState<Settings>(loadSettings);
+  const setSettings = (s: Settings) => { setSettingsState(s); saveSettings(s); };
+  useEffect(() => { applySettings(settings); }, [settings]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [user, setUser] = useState("");
+  const [appVersion, setAppVersion] = useState("");
   const [panel, setPanel] = useState<{ sessionId: string; kind: PanelKind } | null>(null);
   const [lastAgent, setLastAgent] = usePersisted<AgentId>("zoo.lastAgent", "claude");
   const refreshPast = useCallback((fresh = false) => {
@@ -75,7 +86,12 @@ export function App() {
   useEffect(() => {
     refreshPast();
     window.agents.usage().then(setUsage).catch(() => {});
-    return window.agents.onUsage(setUsage);
+    // Keep the sessions list current: Claude's saves arrive as they happen; the rest on focus.
+    const offChanged = window.agents.onSessionsChanged(() => refreshPast());
+    const onFocus = () => refreshPast();
+    window.addEventListener("focus", onFocus);
+    const offUsage = window.agents.onUsage(setUsage);
+    return () => { offChanged(); offUsage(); window.removeEventListener("focus", onFocus); };
   }, [refreshPast]);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -85,24 +101,26 @@ export function App() {
   const autoView = useRef<"terminal" | null>(null);
   const autoPrompt = useRef<string | null>(null);
   const autoType = useRef<string | null>(null);
-  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setHome(i.home); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; autoType.current = i.autoType; }); }, []);
+  useEffect(() => { window.agents.info().then((i) => { setCwd(i.cwd); setHome(i.home); setUser(i.user); setAppVersion(i.version); setAutoStart(i.autoStart); autoView.current = i.autoView; autoPrompt.current = i.autoPrompt; autoType.current = i.autoType; }); }, []);
   useEffect(() => window.agents.onEvent((id, e) => {
     setSessions((prev) => (prev[id] ? { ...prev, [id]: apply(prev[id]!, e) } : prev));
   }), []);
 
-  const start = useCallback(async (agent: AgentId, opts: { cwd?: string; prompt?: string; resumeId?: string } = {}) => {
+  const start = useCallback(async (agent: AgentId, opts: { cwd?: string; prompt?: string; resumeId?: string; cloud?: string } = {}) => {
     setStartError("");
     try {
-      const info = await window.agents.createSession(agent, opts.cwd ?? cwd, opts.resumeId);
+      const info = await window.agents.createSession(agent, opts.cwd ?? cwd, opts.resumeId, agent === "claude" ? settings.claudeMode : undefined, opts.cloud);
+      if (opts.cloud) setTimeout(() => window.agents.setView(info.id, "terminal").catch(() => {}), 50);
       setSessions((prev) => ({ ...prev, [info.id]: newSession(info) }));
       setActiveId(info.id);
+      setShowSettings(false);
       setLastAgent(agent);
       if (opts.prompt) setTimeout(() => window.agents.command(info.id, { kind: "send", text: opts.prompt! }), 300);
       const prompt = autoPrompt.current;
       if (prompt) { autoPrompt.current = null; setTimeout(() => window.agents.command(info.id, { kind: "send", text: prompt }), 800); }
       else if (autoView.current) { autoView.current = null; setTimeout(() => window.agents.setView(info.id, "terminal"), 1500); }
     } catch (err) { setStartError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err)); }
-  }, [cwd, setLastAgent]);
+  }, [cwd, setLastAgent, settings.claudeMode]);
 
   useEffect(() => { if (autoStart && cwd) { const a = autoStart; setAutoStart(null); start(a); } }, [autoStart, cwd, start]);
 
@@ -133,12 +151,21 @@ export function App() {
   };
   const runCommand = (id: string, cmd: SessionCommand) => { window.agents.command(id, cmd).catch((err) => showError(id, err)); };
   const closeSession = (id: string) => {
-    window.agents.closeSession(id);
+    window.agents.closeSession(id).then(() => refreshPast());
     setSessions((prev) => { const next = { ...prev }; delete next[id]; return next; });
     if (activeId === id) setActiveId(null);
   };
 
   const list = Object.values(sessions);
+
+  /** Reopens a saved conversation, or switches to it if it's already open here. */
+  const resumePast = (ps: PastSession) => {
+    const open = list.find((x) => x.info.agent === ps.agent && (x.nativeId ?? x.info.nativeId) === ps.id);
+    if (open) { setActiveId(open.info.id); setShowSettings(false); return; }
+    if (ps.liveElsewhere && !window.confirm(`“${ps.title}” looks like it's running somewhere else right now (it changed in the last minute). Opening it here too can mix up the two. Open anyway?`)) return;
+    start(ps.agent, { cwd: ps.cwd, resumeId: ps.id });
+  };
+  const openCloud = (link: string) => start("claude", { cwd: home || cwd, cloud: link });
   const empty = active ? (
     <div className="empty-state">
       <Mascot pack={pack} state="idle" size={120} />
@@ -146,81 +173,60 @@ export function App() {
     </div>
   ) : (
     <>
-      <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={lastAgent}
+      <HomeScreen home={home} past={past} loading={pastLoading} usage={usage} lastAgent={settings.defaultAgent === "last" ? lastAgent : settings.defaultAgent}
         onOpenFolder={() => window.agents.pickFolder()}
         onStart={(a, folder, prompt) => { start(a, { cwd: folder, prompt: prompt || undefined }); }}
-        onResume={(ps) => {
-          // Already open? Just switch to it.
-          const open = list.find((x) => x.info.agent === ps.agent && x.title && x.info.cwd === ps.cwd && x.title === ps.title);
-          if (open) setActiveId(open.info.id); else start(ps.agent, { cwd: ps.cwd, resumeId: ps.id });
-        }} />
+        onResume={resumePast} />
       {startError && <div className="error-banner home-error" role="alert">{startError}</div>}
     </>
   );
 
-  // Sessions grouped by project folder, in the order the folders were first used.
-  const folders = new Map<string, Session[]>();
-  for (const s of list) folders.set(s.info.cwd, [...(folders.get(s.info.cwd) ?? []), s]);
   const sessionLabel = (s: Session) => s.title ?? `${AGENT_NAMES[s.info.agent]} session`;
 
   return (
-    <div className={`app ${layout.left ? "" : "no-left"} ${!active ? "no-rail" : layout.right ? "" : "slim-right"}`} data-skin={agent}>
+    <div className={`app ${layout.left ? "" : "no-left"} ${!active || showSettings ? "no-rail" : layout.right ? "" : "slim-right"}`}
+      data-skin={settings.skin === "agent" ? agent : settings.skin}
+      style={{ "--agent-claude": settings.agentColors.claude, "--agent-codex": settings.agentColors.codex, "--agent-grok": settings.agentColors.grok } as React.CSSProperties}>
       {layout.left ? (
         <aside className="sidebar">
           <div className="sidebar-head">
             <div className="brand">Agent Zoo</div>
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>
-          <button className="new-session" onClick={() => setActiveId(null)}>+ New session</button>
-          <nav className="session-list" aria-label="Sessions by folder">
-            {[...folders.entries()].map(([folder, items]) => {
-              const isFolded = folded.includes(folder);
-              return (
-                <div key={folder} className="folder-group">
-                  <button className="folder-head" aria-expanded={!isFolded} title={folder}
-                    onClick={() => setFolded(isFolded ? folded.filter((f) => f !== folder) : [...folded, folder])}>
-                    <span className={`chev-small ${isFolded ? "" : "open"}`} aria-hidden="true">›</span>
-                    <span className="folder-name">{folder.split("/").pop() || folder}</span>
-                    <span className="folder-count">{items.length}</span>
-                  </button>
-                  <div className="fold" data-open={!isFolded}><div className="fold-inner">
-                  {items.map((s) => (
-                    <div key={s.info.id} className={`session-row ${s.info.id === activeId ? "active" : ""}`}>
-                      <button onClick={() => setActiveId(s.info.id)}>
-                        <span className={`dot agent-${s.info.agent} ${s.status}`} aria-hidden="true" />
-                        <span className="session-name">{sessionLabel(s)}</span>
-                        <span className="session-agent">{AGENT_NAMES[s.info.agent]}{s.view === "terminal" ? " · Terminal" : ""}</span>
-                      </button>
-                      <button className="close" onClick={() => closeSession(s.info.id)} aria-label={`Close ${sessionLabel(s)}`}>×</button>
-                    </div>
-                  ))}
-                  </div></div>
-                </div>
-              );
-            })}
-            {!list.length && <p className="muted small pad">No sessions yet</p>}
-          </nav>
+          <button className="new-session" onClick={() => { setActiveId(null); setShowSettings(false); }}>+ New session</button>
+          <SessionSidebar sessions={list} past={past} activeId={activeId} expanded={expanded} setExpanded={setExpanded} label={sessionLabel}
+            onSelect={(id) => { setActiveId(id); setShowSettings(false); }} onClose={closeSession}
+            onResume={resumePast} onOpenCloud={openCloud} onCloudTask={setCloudTask} />
+          <button className={`profile-row ${showSettings ? "on" : ""}`} onClick={() => setShowSettings(!showSettings)} title="Settings">
+            <span className="avatar" aria-hidden="true">{initials(settings.displayName || user)}</span>
+            <span className="profile-name">{settings.displayName || user || "You"}</span>
+            <span className="profile-gear" aria-hidden="true">⚙</span>
+          </button>
         </aside>
       ) : (
         <aside className="sidebar-slim">
           <button className="icon-btn" onClick={() => setLayout({ left: true })} aria-label="Show the sessions panel" title="Show the sessions panel">»</button>
-          <button className="icon-btn" onClick={() => setActiveId(null)} aria-label="New session" title="New session">+</button>
+          <button className="icon-btn" onClick={() => { setActiveId(null); setShowSettings(false); }} aria-label="New session" title="New session">+</button>
           {list.map((s) => (
-            <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => setActiveId(s.info.id)} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
+            <button key={s.info.id} className={`slim-session ${s.info.id === activeId ? "active" : ""}`} onClick={() => { setActiveId(s.info.id); setShowSettings(false); }} title={`${sessionLabel(s)} · ${s.info.cwd}`}>
               <span className={`dot agent-${s.info.agent} ${s.status}`} aria-hidden="true" />
             </button>
           ))}
+          <button className="avatar slim-avatar" onClick={() => setShowSettings(!showSettings)} title="Settings" aria-label="Settings">{initials(settings.displayName || user)}</button>
         </aside>
       )}
 
       <main className="main">
+        {showSettings ? (
+          <SettingsPage settings={settings} onChange={setSettings} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)} />
+        ) : <>
         {active && (
           <header className="topbar">
             <div className="title"><strong>{active.info.title}</strong><span className="muted">{active.info.cwd}</span></div>
             <div className="chips">
               <div className="view-toggle" role="tablist" aria-label="View">
                 {(["gui", "terminal"] as const).map((v) => (
-                  <button key={v} role="tab" aria-selected={active.view === v} disabled={active.view !== v && active.running}
+                  <button key={v} role="tab" aria-selected={active.view === v} disabled={(active.view !== v && active.running) || (v === "gui" && Boolean(active.info.cloud))}
                     title={active.running && active.view !== v ? "Wait for the agent to finish, or stop it, before switching" : v === "terminal" ? "Open this conversation in the agent's own terminal interface" : "Back to the chat view"}
                     onClick={() => switchView(active.info.id, v)}>{v === "gui" ? "Chat" : "Terminal"}</button>
                 ))}
@@ -253,9 +259,10 @@ export function App() {
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />
         )}
         </>}
+        </>}
       </main>
 
-      {active && layout.right && (
+      {active && !showSettings && layout.right && (
         <aside className="rail">
           <div className="rail-top"><button className="icon-btn" onClick={() => setLayout({ right: false })} aria-label="Hide the details panel" title="Hide the details panel">»</button></div>
           <RailSection title="Usage" id="usage" folded={folded} setFolded={setFolded}
@@ -279,11 +286,12 @@ export function App() {
           </RailSection>
         </aside>
       )}
-      {active && !layout.right && (
+      {active && !showSettings && !layout.right && (
         <aside className="rail-slim">
           <button className="icon-btn" onClick={() => setLayout({ right: true })} aria-label="Show the details panel" title="Show the details panel">«</button>
         </aside>
       )}
+      {cloudTask && <CloudTask task={cloudTask} onPickFolder={() => window.agents.pickFolder()} onClose={() => setCloudTask(null)} />}
     </div>
   );
 }

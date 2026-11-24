@@ -1,10 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import type { AgentId, SessionCommand } from "@shared/events";
 import { SessionManager } from "./session-manager";
 import { UsageStore } from "./usage-store";
-import { pastSessions } from "./history-index";
+import { pastSessions, watchClaudeSessions } from "./history-index";
+import { accounts, ACCOUNT_COMMANDS } from "./accounts";
+import { grokUsage } from "./grok-usage";
+import { userInfo } from "node:os";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
 if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath("temp"), `agent-zoo-test-${process.pid}`));
@@ -58,7 +61,22 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string, resumeId?: string) => manager.create(agent, cwd, resumeId));
+ipcMain.handle("session:create", (_e, agent: AgentId, cwd: string, resumeId?: string, permissionMode?: string, cloud?: string) => manager.create(agent, cwd, resumeId, permissionMode, cloud));
+// Codex Cloud tasks: show a task's diff, or apply it to a local folder. Task ids are checked before use.
+ipcMain.handle("cloud:run", (_e, action: "diff" | "apply", taskId: string, cwd?: string, cols?: number, rows?: number) => {
+  if (!/^[\w-]{3,120}$/.test(taskId) || (action !== "diff" && action !== "apply")) throw new Error("Unknown cloud task.");
+  // "diff" runs from a private folder (Codex Cloud writes a debug log where it runs); "apply" must run in the chosen folder.
+  const where = action === "apply" && cwd ? cwd : join(app.getPath("temp"), "agent-zoo-codex-cloud");
+  mkdirSync(where, { recursive: true });
+  return manager.runUtility("codex", ["cloud", action, taskId], cols, rows, where);
+});
+ipcMain.handle("app:accounts", () => accounts());
+ipcMain.handle("account:run", (_e, agent: AgentId, action: "login" | "logout", cols?: number, rows?: number) => {
+  const cmd = ACCOUNT_COMMANDS[agent]?.[action];
+  if (!cmd) throw new Error("Unknown account action.");
+  return manager.runUtility(cmd[0]!, cmd.slice(1), cols, rows);
+});
+ipcMain.handle("account:close", (_e, id: string) => manager.closeUtility(id));
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));
@@ -73,6 +91,8 @@ ipcMain.handle("dialog:pickFolder", async () => {
 });
 ipcMain.handle("app:info", () => ({
   home: app.getPath("home"),
+  user: (() => { try { return userInfo().username; } catch { return ""; } })(),
+  version: app.getVersion(),
   cwd: process.env.AGENTS_GUI_CWD || process.cwd(),
   // Screenshot runs start themselves: a replay's agent comes from the fixture's name, or AGENTS_GUI_AUTOSTART names one.
   autoStart: process.env.AGENTS_GUI_SCREENSHOT
@@ -89,6 +109,15 @@ app.whenReady().then(() => {
   const endpoint = claudeEndpoint();
   if (endpoint) usage.update({ agent: "claude", endpoint });
   createWindow();
+  // Sessions saved by Claude anywhere (including plain terminals) show up in the sidebar.
+  watchClaudeSessions(() => win?.webContents.send("sessions:changed"));
+  // Grok's plan limits are read from its own /usage screen: at launch, then every 15 minutes.
+  // Screenshot runs skip this so tests never start Grok.
+  if (!process.env.AGENTS_GUI_SCREENSHOT || process.env.AGENTS_GUI_GROK_USAGE) {
+    const readGrok = () => grokUsage(app.getPath("userData")).then((l) => { if (l) usage?.update(l); }).catch(() => {});
+    setTimeout(readGrok, 4000);
+    setInterval(readGrok, 15 * 60_000).unref();
+  }
 });
 app.on("window-all-closed", () => { manager.closeAll(); app.quit(); });
 app.on("before-quit", () => manager.closeAll());

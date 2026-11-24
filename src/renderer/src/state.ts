@@ -31,9 +31,10 @@ export interface Session {
   effort?: string;
   title?: string;
   permissionMode?: string; // Claude only
+  nativeId?: string;       // the agent's own conversation id
 }
 
-export const newSession = (info: SessionInfo): Session => ({ info, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui", commands: [], models: [] });
+export const newSession = (info: SessionInfo): Session => ({ info, nativeId: info.nativeId, items: [], status: "idle", running: false, plan: [], hooks: 0, exited: false, view: "gui", commands: [], models: [] });
 
 /** Finds the list an item belongs in: top level, or inside its parent subagent card. */
 function container(items: Item[], parentToolId?: string): Item[] {
@@ -63,7 +64,7 @@ let turnSeq = 0;
 export function apply(s: Session, e: AgentEvent): Session {
   const items = s.items;
   switch (e.kind) {
-    case "session.started": return { ...s, model: e.model };
+    case "session.started": return { ...s, model: e.model, nativeId: s.nativeId ?? e.sessionId };
     case "user.message": {
       items.push({ type: "user", id: e.id, text: e.text });
       // The first message names the session in the sidebar.
@@ -139,6 +140,13 @@ export function apply(s: Session, e: AgentEvent): Session {
       // Rebuild the transcript from the agent's saved copy, then settle: nothing is running.
       let next: Session = { ...s, items: [], plan: [] };
       for (const ev of e.events) next = apply(next, ev);
+      // A saved conversation is finished: tools whose end wasn't recorded aren't still running.
+      const settle = (list: Item[]) => list.forEach((it) => {
+        if (it.type !== "tool") return;
+        if (it.ok === undefined) { it.ok = true; it.result ??= { kind: "text", text: it.live || "Finished earlier; its output wasn't saved." }; }
+        settle(it.children);
+      });
+      settle(next.items);
       return { ...next, status: "idle", running: false };
     }
     case "commands": return { ...s, commands: e.commands };

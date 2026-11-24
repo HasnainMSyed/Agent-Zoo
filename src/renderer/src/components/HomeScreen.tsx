@@ -22,24 +22,28 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
   onStart: (agent: AgentId, cwd: string, prompt: string) => void;
   onResume: (s: PastSession) => void;
 }) {
+  // Cloud tasks have no local folder; they live in the sidebar's cloud group.
+  const local = useMemo(() => past.filter((s) => !s.cloud), [past]);
   const projects = useMemo(() => {
     const map = new Map<string, Project>();
-    for (const s of past) {
+    for (const s of local) {
       const p = map.get(s.cwd) ?? { cwd: s.cwd, sessions: [], updatedAt: 0 };
       p.sessions.push(s);
       p.updatedAt = Math.max(p.updatedAt, s.updatedAt);
       map.set(s.cwd, p);
     }
     return [...map.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [past]);
+  }, [local]);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [agent, setAgent] = useState<AgentId>(lastAgent);
   const [prompt, setPrompt] = useState("");
+  const [recentOpen, setRecentOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { if (selected) inputRef.current?.focus(); }, [selected]);
 
-  const latest = past[0];
+  // Skip conversations that seem to be running elsewhere right now (e.g. in another terminal).
+  const latest = local.find((s) => !s.liveElsewhere);
   const project = selected ? projects.find((p) => p.cwd === selected) ?? { cwd: selected, sessions: [], updatedAt: 0 } : undefined;
 
   const openFolder = async () => { const p = await onOpenFolder(); if (p) setSelected(p); };
@@ -98,8 +102,15 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
         </section>
       )}
 
-      <section className="home-section">
-        <span className="home-label">Recent projects</span>
+      <section className="home-section recent">
+        {/* Folded at every launch; the button opens the cards. */}
+        <button className="recent-toggle" aria-expanded={recentOpen} onClick={() => setRecentOpen(!recentOpen)}>
+          <span className="rt-label">Recent projects</span>
+          {projects.length > 0 && <span className="rt-count">{projects.length > 6 ? 6 : projects.length}</span>}
+          <span className="rt-dots" aria-hidden="true">{[...new Set(local.map((s) => s.agent))].map((a) => <span key={a} className={`dot agent-${a}`} />)}</span>
+          <span className={`rt-chev ${recentOpen ? "open" : ""}`} aria-hidden="true">›</span>
+        </button>
+        <div className="fold" data-open={recentOpen}><div className="fold-inner"><div className="recent-body">
         {loading && !projects.length && <p className="muted small">Looking for your projects…</p>}
         {!loading && !projects.length && <p className="muted small">No projects yet. Open a folder to start your first session.</p>}
         <div className="project-grid">
@@ -115,6 +126,7 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
             </button>
           ))}
         </div>
+        </div></div></div>
       </section>
 
       <section className="usage-row" aria-label="Plan usage">
@@ -122,7 +134,7 @@ export function HomeScreen({ home, past, loading, usage, lastAgent, onOpenFolder
           <div key={a} className="usage-cell" data-skin={a}>
             <div className="uc-head"><span className={`dot agent-${a}`} aria-hidden="true" />{usage[a]?.plan ?? AGENT_NAMES[a]}</div>
             {usage[a]?.windows.length ? <LimitBars usage={usage[a]} compact />
-              : <span className="muted tiny">{a === "grok" ? "Limits via /usage in Grok's terminal" : "Shown after your next session"}</span>}
+              : <span className="muted tiny">{a === "grok" ? "Reading Grok's limits…" : "Shown after your next session"}</span>}
           </div>
         ))}
       </section>

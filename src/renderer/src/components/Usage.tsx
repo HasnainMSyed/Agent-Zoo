@@ -51,7 +51,7 @@ export function UsageDetails({ agent, usage, sessionCost }: { agent: UsageLimits
     <div className="usage-details">
       {billing && <div className="billing">{billing}</div>}
       <LimitBars usage={usage} />
-      {agent === "grok" && <p className="muted small">Grok shares plan limits only inside its own interface. Type /usage in the Terminal tab to see them.</p>}
+      {agent === "grok" && !usage?.windows.length && <p className="muted small">Reading Grok's plan limits from its /usage screen… If they don't appear, type /usage in the Terminal tab.</p>}
       {agent !== "grok" && !usage?.windows.length && <p className="muted small">Limits appear after the agent's first reply.</p>}
       {sessionCost !== undefined && <div className="session-cost"><span className="muted">This session</span><strong>${sessionCost.toFixed(2)}</strong></div>}
       {usage?.updatedAt ? <p className="muted tiny">Updated {timeAgo(usage.updatedAt)}</p> : null}

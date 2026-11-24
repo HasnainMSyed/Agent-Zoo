@@ -6,3 +6,6 @@ out/
 sandbox/
 fixtures/codex-protocol/
 fixtures/*.err
+
+# Debug logs some agent CLIs write into their working folder (they can hold account details)
+error.log

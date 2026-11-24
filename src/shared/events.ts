@@ -65,4 +65,6 @@ export interface SessionInfo {
   agent: AgentId;
   cwd: string;
   title: string;
+  nativeId?: string; // the agent's own conversation id, when known up front (Claude, resumed sessions)
+  cloud?: string;    // a Claude cloud session, attached in the Terminal view only
 }
