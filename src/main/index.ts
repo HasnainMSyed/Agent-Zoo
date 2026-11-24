@@ -11,6 +11,7 @@ import { accounts, ACCOUNT_COMMANDS } from "./accounts";
 import { grokUsage } from "./grok-usage";
 import { MascotStore } from "./mascots";
 import { userInfo } from "node:os";
+import { loadShellPath } from "./env";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
 if (process.env.AGENTS_GUI_SCREENSHOT) app.setPath("userData", join(app.getPath("temp"), `agent-zoo-test-${process.pid}`));
@@ -140,7 +141,9 @@ ipcMain.handle("app:info", () => ({
   autoType: process.env.AGENTS_GUI_SCREENSHOT ? process.env.AGENTS_GUI_AUTOTYPE ?? null : null,
 }));
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Installed copies start from the desktop menu, without a terminal's PATH (see env.ts).
+  if (app.isPackaged) await loadShellPath();
   usage = new UsageStore((all) => win?.webContents.send("usage:update", all));
   mascots = new MascotStore(join(app.getPath("userData"), "mascots"));
   // New or edited packs (including ones Claude draws in "Make a mascot") show up by themselves.

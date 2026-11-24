@@ -11,7 +11,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dist": "electron-vite build && electron-builder --linux deb AppImage"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
@@ -29,9 +30,53 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",
     "electron": "45.4.1",
+    "electron-builder": "26.18.0",
     "electron-vite": "6.0.0",
     "typescript": "7.0.2",
     "vite": "8.3.8",
     "vitest": "5.1.1"
-  }
+  },
+  "homepage": "https://github.com/HasnainMSyed/Agent-Zoo",
+  "author": {
+    "name": "Hasnain Syed",
+    "email": "HasnainMSyed@users.noreply.github.com"
+  },
+  "build": {
+    "appId": "io.github.hasnainmsyed.agentzoo",
+    "productName": "Agent Zoo",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Development",
+      "executableName": "agent-zoo",
+      "synopsis": "A desktop app for Claude Code, Codex and Grok",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ]
+    }
+  },
+  "desktopName": "agent-zoo.desktop"
 }
