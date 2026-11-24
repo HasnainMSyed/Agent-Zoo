@@ -14,7 +14,7 @@ import { SettingsPage, initials } from "./components/SettingsPage";
 import { CloudTask, SessionBrowser, SessionNav } from "./components/SessionSidebar";
 import { Subagents, subagentsOf } from "./components/Subagents";
 import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
-import type { PanelKind, PastSession, UsageLimits } from "@shared/commands";
+import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
@@ -285,15 +285,16 @@ export function App() {
             onCommand={(cmd, args) => {
               const typed = `/${cmd.name}${args ? " " + args : ""}`;
               if (cmd.run === "terminal") switchView(active.info.id, "terminal", typed + "\r");
-              else if (cmd.run === "panel") setPanel({ sessionId: active.info.id, kind: cmd.name as PanelKind });
+              else if (cmd.run === "panel") setPanel({ sessionId: active.info.id, kind: active.info.agent === "codex" ? CODEX_PANELS[cmd.name]!.kind : (cmd.name as PanelKind) });
               else runCommand(active.info.id, { kind: "slash", name: cmd.name, args });
             }}
             onPickModel={(model, effort) => runCommand(active.info.id, { kind: "setModel", model, effort })}
             panel={panel?.sessionId === active.info.id
-              ? <CommandPanel key={panel.kind} kind={panel.kind} sessionId={active.info.id} mode={active.permissionMode} onClose={() => setPanel(null)}
+              ? <CommandPanel key={panel.kind} kind={panel.kind} agent={active.info.agent} sessionId={active.info.id} mode={active.permissionMode} onClose={() => setPanel(null)}
                   onTerminal={(typed) => { setPanel(null); switchView(active.info.id, "terminal", typed); }} />
               : undefined}
-            modeLabel={active.info.agent === "claude" ? modeLabel(active.permissionMode ?? "default") : undefined}
+            modeLabel={active.info.agent === "claude" ? modeLabel(active.permissionMode ?? "default")
+              : active.info.agent === "codex" ? `Access: ${modeLabel(active.permissionMode ?? "auto", "codex")}` : undefined}
             onMode={() => setPanel(panel?.kind === "mode" && panel.sessionId === active.info.id ? null : { sessionId: active.info.id, kind: "mode" })}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />

@@ -209,3 +209,56 @@ export class CodexMapper {
     return { id: rpcId, result: { decision: DECISION[decision] } };
   }
 }
+
+/** Codex's access presets (its /approvals menu): what it may do without asking, and where it may write. */
+export const CODEX_ACCESS: Record<string, { approvalPolicy: string; sandboxPolicy: Record<string, unknown> }> = {
+  "read-only": { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly", networkAccess: false } },
+  auto: { approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false } },
+  full: { approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } },
+};
+
+/** The preset a Codex config amounts to (sandbox_mode decides; Codex's default is "auto"). */
+export function codexAccessFromConfig(config: Record<string, any> | undefined): string {
+  const mode = config?.sandbox_mode;
+  return mode === "read-only" ? "read-only" : mode === "danger-full-access" ? "full" : "auto";
+}
+
+const MCP_STATE: Record<string, string> = {
+  connected: "connected", starting: "pending", notStarted: "pending", authenticationRequired: "needs-auth", failed: "failed", cancelled: "failed", disabled: "disabled",
+};
+
+/** mcpServerStatus/list in the shape the MCP panel draws (shared with Claude's /mcp). */
+export function codexMcpPanel(res: Record<string, any> | undefined) {
+  const servers = (res?.data ?? []).map((s: Record<string, any>) => ({
+    name: String(s.name),
+    status: s.authStatus === "notLoggedIn" ? "needs-auth" : MCP_STATE[s.runtimeStatus ?? ""] ?? (s.toolsError ? "failed" : "connected"),
+    tools: Object.keys(s.tools ?? {}),
+    error: s.toolsError ?? undefined,
+    transport: s.httpOrigin ? "http" : "stdio",
+    scope: s.pluginId ? `plugin ${s.pluginId}` : "config",
+  }));
+  return { mcpServers: servers };
+}
+
+/** /status for Codex, as titled rows like Claude's get_status. */
+export function codexStatusSections(info: { threadId?: string; cwd: string; model?: string; effort?: string; access: string; account?: Record<string, any>; limits?: AgentEvent[]; version?: string }) {
+  const acc = info.account?.account ?? info.account ?? {};
+  const windows = info.limits?.flatMap((e) => (e.kind === "limits" ? e.limits.windows ?? [] : [])) ?? [];
+  const label = { "read-only": "Read only", auto: "Auto", full: "Full access" }[info.access] ?? info.access;
+  return {
+    sections: [
+      { title: "Session", rows: [
+        ...(info.threadId ? [{ label: "Thread ID", value: info.threadId }] : []),
+        { label: "cwd", value: info.cwd },
+        ...(info.model ? [{ label: "Model", value: `${info.model}${info.effort ? ` (${info.effort} effort)` : ""}` }] : []),
+        { label: "Access", value: label },
+      ] },
+      { title: "Account", rows: [
+        ...(acc.type ? [{ label: "Signed in with", value: acc.type === "chatgpt" ? "ChatGPT" : acc.type === "apiKey" ? "API key" : String(acc.type) }] : []),
+        ...(acc.planType ? [{ label: "Plan", value: String(acc.planType).replace(/^./, (c) => c.toUpperCase()) }] : []),
+        ...(acc.email ? [{ label: "Email", value: String(acc.email) }] : []),
+      ] },
+      ...(windows.length ? [{ title: "Limits", rows: windows.map((w) => ({ label: w.label, value: `${w.usedPct}% used` })) }] : []),
+    ].filter((s) => s.rows.length),
+  };
+}

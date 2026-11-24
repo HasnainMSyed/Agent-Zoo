@@ -148,11 +148,12 @@ describe("menu panels", () => {
     expect(claudeUsageLimits({ rate_limits_available: false })).toEqual([]);
   });
 
-  it("opens /mcp, /status and /context as panels for Claude only", () => {
+  it("opens /mcp, /status and /context as panels for Claude", () => {
     const own = [{ name: "mcp", description: "Manage MCP servers", run: "send" as const }, { name: "context", description: "", run: "send" as const }];
     const claude = mergeCommands("claude", own, ["mcp", "context"]);
     for (const name of ["mcp", "status", "context"]) expect(claude.find((c) => c.name === name)?.run).toBe("panel");
     expect(claude.find((c) => c.name === "mcp")?.description).toBe("Manage MCP servers");
-    expect(mergeCommands("codex", [], []).find((c) => c.name === "status")?.run).toBe("terminal");
+    expect(mergeCommands("codex", [], []).find((c) => c.name === "context")).toBeUndefined();
+    expect(mergeCommands("grok", [], []).find((c) => c.name === "help")?.run).toBe("terminal");
   });
 });

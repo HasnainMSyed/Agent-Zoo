@@ -14,7 +14,7 @@ import { ReplaySession } from "./adapters/replay";
 import { CodexSession } from "./adapters/codex";
 import { GrokSession } from "./adapters/grok";
 import { TerminalSession } from "./terminal";
-import { CLAUDE_QUERIES } from "@shared/commands";
+import { AGENT_QUERIES } from "@shared/commands";
 
 export type View = "gui" | "terminal";
 
@@ -221,7 +221,7 @@ export class SessionManager {
   async query(id: string, subtype: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     const s = this.sessions.get(id);
     if (!s) throw new Error("That session has ended. Start a new one.");
-    if (!(CLAUDE_QUERIES as readonly string[]).includes(subtype)) throw new Error(`Unknown request: ${subtype}`);
+    if (!AGENT_QUERIES[s.info.agent].includes(subtype)) throw new Error(`Unknown request: ${subtype}`);
     if (!s.agent) throw new Error("This session is in the Terminal view. Switch back to Chat to use this panel.");
     if (!s.agent.query) throw new Error("This agent doesn't offer that panel.");
     const gen = s.gen;

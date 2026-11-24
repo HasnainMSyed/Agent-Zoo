@@ -3,7 +3,8 @@
 // Claude process through its control protocol, so the panels show exactly what Claude sees.
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { PERMISSION_MODES, type PanelKind } from "@shared/commands";
+import { CODEX_MODES, PERMISSION_MODES, type PanelKind } from "@shared/commands";
+import type { AgentId } from "@shared/events";
 
 type Json = Record<string, any>;
 
@@ -13,10 +14,12 @@ const REQUEST: Record<Exclude<PanelKind, "mode">, string> = { mcp: "mcp_status",
 const cleanError = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 const fmt = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
 
-export const modeLabel = (mode?: string) => PERMISSION_MODES.find((m) => m.id === mode)?.label ?? (mode === "manual" ? "Ask before edits" : mode);
+const modesFor = (agent: AgentId) => (agent === "codex" ? CODEX_MODES : PERMISSION_MODES);
+export const modeLabel = (mode: string | undefined, agent: AgentId = "claude") =>
+  modesFor(agent).find((m) => m.id === mode)?.label ?? (mode === "manual" ? "Ask before edits" : mode);
 
-export function CommandPanel({ kind, sessionId, mode, onClose, onTerminal }: {
-  kind: PanelKind; sessionId: string; mode?: string; onClose: () => void;
+export function CommandPanel({ kind, sessionId, mode, onClose, onTerminal, agent = "claude" }: {
+  kind: PanelKind; sessionId: string; mode?: string; onClose: () => void; agent?: AgentId;
   /** Opens the Terminal view and types a command there (for things only Claude's own interface can do, like signing in). */
   onTerminal: (typed: string) => void;
 }) {
@@ -40,17 +43,17 @@ export function CommandPanel({ kind, sessionId, mode, onClose, onTerminal }: {
   };
 
   let body: ReactNode;
-  if (kind === "mode") body = <ModeList mode={mode} busy={busy} onPick={(m) => act(m, "set_permission_mode", { mode: m }, true)} />;
+  if (kind === "mode") body = <ModeList agent={agent} mode={mode} busy={busy} onPick={(m) => act(m, "set_permission_mode", { mode: m }, true)} />;
   else if (!data && !error) body = <p className="muted small">Asking Claude…</p>;
   else if (data && kind === "status") body = <StatusView data={data} />;
   else if (data && kind === "context") body = <ContextView data={data} />;
-  else if (data && kind === "mcp") body = <McpView data={data} busy={busy} act={act} onTerminal={onTerminal} />;
+  else if (data && kind === "mcp") body = <McpView agent={agent} data={data} busy={busy} act={act} onTerminal={onTerminal} />;
 
   return (
     <div className={`picker panel panel-${kind}`} role="dialog" aria-label={TITLES[kind]}
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       <div className="picker-head">
-        <strong>{TITLES[kind]}</strong>
+        <strong>{kind === "mode" && agent === "codex" ? "Approvals" : TITLES[kind]}</strong>
         <span className="panel-actions">
           {kind !== "mode" && <button onClick={load} aria-label="Refresh" title="Refresh">↻</button>}
           <button onClick={onClose} aria-label="Close">×</button>
@@ -62,12 +65,13 @@ export function CommandPanel({ kind, sessionId, mode, onClose, onTerminal }: {
   );
 }
 
-function ModeList({ mode, busy, onPick }: { mode?: string; busy: string | null; onPick: (mode: string) => void }) {
-  const current = mode === "manual" ? "default" : mode ?? "default";
+function ModeList({ agent, mode, busy, onPick }: { agent: AgentId; mode?: string; busy: string | null; onPick: (mode: string) => void }) {
+  const current = mode === "manual" ? "default" : mode ?? (agent === "codex" ? "auto" : "default");
   return (
     <div className="picker-list" role="listbox" aria-label="Permission modes">
-      {PERMISSION_MODES.map((m) => (
-        <button key={m.id} role="option" aria-selected={m.id === current} className={`picker-row ${m.id === "bypassPermissions" ? "danger" : ""}`}
+      {agent === "codex" && <p className="muted small">Applies from your next message.</p>}
+      {modesFor(agent).map((m) => (
+        <button key={m.id} role="option" aria-selected={m.id === current} className={`picker-row ${m.id === "bypassPermissions" || m.id === "full" ? "danger" : ""}`}
           disabled={busy !== null} onClick={() => onPick(m.id)}>
           <span>{m.label}{busy === m.id ? " …" : ""}</span><small>{m.description}</small>
         </button>
@@ -132,16 +136,20 @@ function serverName(full: string): { name: string; from?: string } {
   return m ? { name: m[2]!, from: `${m[1]} plugin` } : { name: full };
 }
 
-function McpView({ data, busy, act, onTerminal }: {
-  data: Json; busy: string | null; act: (key: string, subtype: string, payload: Json) => void; onTerminal: (typed: string) => void;
+function McpView({ agent, data, busy, act, onTerminal }: {
+  agent: AgentId; data: Json; busy: string | null; act: (key: string, subtype: string, payload: Json) => void; onTerminal: (typed: string) => void;
 }) {
+  const codex = agent === "codex";
   const servers: Json[] = Array.isArray(data.mcpServers) ? [...data.mcpServers] : [];
-  if (!servers.length) return <p className="muted small">No MCP servers are set up. Add one with <code>claude mcp add</code> in a terminal.</p>;
+  if (!servers.length) return <p className="muted small">No MCP servers are set up. Add one with <code>{codex ? "codex" : "claude"} mcp add</code> in a terminal.</p>;
   servers.sort((a, b) => MCP_ORDER.indexOf(a.status) - MCP_ORDER.indexOf(b.status) || a.name.localeCompare(b.name));
   const counts = MCP_ORDER.map((s) => [s, servers.filter((x) => x.status === s).length] as const).filter(([, n]) => n);
   return (
     <>
-      <p className="mcp-summary">{counts.map(([s, n]) => <span key={s} className={`mcp-pill ${s}`}>{n} {MCP_LABEL[s]!.toLowerCase()}</span>)}</p>
+      <p className="mcp-summary">
+        {counts.map(([s, n]) => <span key={s} className={`mcp-pill ${s}`}>{n} {MCP_LABEL[s]!.toLowerCase()}</span>)}
+        {codex && <button className="btn-small mcp-reload" disabled={busy !== null} onClick={() => act("reload", "mcp_reconnect", {})}>{busy === "reload" ? "Reloading…" : "Reload servers"}</button>}
+      </p>
       <ul className="mcp-list">
         {servers.map((s) => {
           const { name, from } = serverName(s.name);
@@ -155,7 +163,7 @@ function McpView({ data, busy, act, onTerminal }: {
                 <div className="mcp-meta">{[from ?? s.scope, s.transport].filter(Boolean).join(" · ")}{s.error ? ` · ${s.error}` : ""}</div>
               </div>
               <div className="mcp-buttons">
-                {busy === key ? <span className="muted small">…</span> : <>
+                {codex ? null : busy === key ? <span className="muted small">…</span> : <>
                   {s.status === "needs-auth" && <button onClick={() => onTerminal("/mcp\r")} title="Sign-in happens in Claude's own interface">Sign in</button>}
                   {s.status === "failed" && <button onClick={() => act(key, "mcp_reconnect", { serverName: s.name })}>Retry</button>}
                   {s.status === "disabled"

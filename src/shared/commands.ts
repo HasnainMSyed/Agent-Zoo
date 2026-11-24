@@ -17,9 +17,28 @@ export const CLAUDE_PANELS: Record<"mcp" | "status" | "context", string> = {
   context: "See what fills the context window",
 };
 
-/** Requests a panel may send to Claude (its control protocol); anything else is refused. */
+/** Requests a panel may send to each agent; anything else is refused. Codex answers the same names. */
 export const CLAUDE_QUERIES = ["mcp_status", "mcp_toggle", "mcp_reconnect", "get_status", "get_context_usage", "get_usage", "set_permission_mode"] as const;
 export type ClaudeQuery = (typeof CLAUDE_QUERIES)[number];
+export const AGENT_QUERIES: Record<"claude" | "codex" | "grok", readonly string[]> = {
+  claude: CLAUDE_QUERIES,
+  codex: ["mcp_status", "mcp_reconnect", "get_status", "set_permission_mode"],
+  grok: [],
+};
+
+/** Codex's access presets, as its /approvals menu offers them. */
+export const CODEX_MODES: { id: string; label: string; description: string }[] = [
+  { id: "read-only", label: "Read only", description: "Reads files; asks before editing or running anything that changes them" },
+  { id: "auto", label: "Auto", description: "Edits and runs commands in this folder; asks before going outside it or online" },
+  { id: "full", label: "Full access", description: "Edits anything and uses the network without asking. Only for sandboxes you trust" },
+];
+
+/** Panels the app draws for Codex's menu commands (approvals opens the access picker). */
+export const CODEX_PANELS: Record<string, { kind: PanelKind; description: string }> = {
+  status: { kind: "status", description: "Show session, account and limits" },
+  mcp: { kind: "mcp", description: "See MCP servers and reload them" },
+  approvals: { kind: "mode", description: "Choose what Codex may do without asking" },
+};
 
 /** Claude's permission modes, in the order Shift+Tab cycles through the common ones. */
 export const PERMISSION_MODES: { id: string; label: string; description: string }[] = [
@@ -103,6 +122,9 @@ export function mergeCommands(agent: "claude" | "codex" | "grok", own: SlashComm
   for (const p of PICKERS) out.set(p.name, p);
   if (agent === "claude") {
     for (const [name, description] of Object.entries(CLAUDE_PANELS)) out.set(name, { name, description: own.find((c) => c.name === name)?.description || description, run: "panel" });
+  }
+  if (agent === "codex") {
+    for (const [name, p] of Object.entries(CODEX_PANELS)) out.set(name, { name, description: p.description, run: "panel" });
   }
   for (const c of own) if (!out.has(c.name)) out.set(c.name, terminalNames.includes(c.name) ? { ...c, run: "terminal" } : c);
   for (const [name, description] of TERMINAL_ONLY[agent]) if (!out.has(name)) out.set(name, { name, description, run: "terminal" });

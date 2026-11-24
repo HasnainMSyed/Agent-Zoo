@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, PermissionOption } from "@shared/events";
 import type { AgentSession } from "./claude";
-import { CodexMapper } from "./codex-mapper";
+import { CODEX_ACCESS, CodexMapper, codexAccessFromConfig, codexLimits, codexMcpPanel, codexStatusSections } from "./codex-mapper";
 import { mergeCommands, type ModelOption } from "@shared/commands";
 
 type Json = Record<string, any>;
@@ -21,6 +21,8 @@ export class CodexSession implements AgentSession {
   private closing = false;
   private model: string | undefined;
   private effort: string | undefined;
+  private access = "auto";            // the access preset in force (see CODEX_ACCESS)
+  private accessChanged = false;      // only override Codex's own config once the user picks a preset
 
   /** `resume`: a thread id to continue, "latest" for the newest thread in this folder, or nothing for a new thread. */
   constructor(private cwd: string, private emit: (e: AgentEvent) => void, private resume?: string, bin = "codex") {
@@ -81,6 +83,12 @@ export class CodexSession implements AgentSession {
       efforts: (m.supportedReasoningEfforts ?? []).map((e: Json) => e.reasoningEffort),
     }));
     this.emit({ kind: "models", models: options, current: model, effort: this.effort });
+    // The access level Codex starts with comes from its config (sandbox_mode).
+    this.rpc("config/read", { cwd: this.cwd }).then((r) => {
+      if (this.accessChanged) return;
+      this.access = codexAccessFromConfig(r.config);
+      this.emit({ kind: "mode", mode: this.access });
+    }).catch(() => {});
     this.emit({ kind: "commands", commands: mergeCommands("codex", [
       { name: "compact", description: "Summarize the conversation to free up context", run: "action" },
       { name: "new", description: "Start a new conversation in this session", run: "action" },
@@ -118,11 +126,36 @@ export class CodexSession implements AgentSession {
       .then((threadId) => this.rpc("turn/start", {
         threadId: this.mapper.threadId ?? threadId, input: [{ type: "text", text, text_elements: [] }],
         ...(this.model ? { model: this.model } : {}), ...(this.effort ? { effort: this.effort } : {}),
+        ...(this.accessChanged ? CODEX_ACCESS[this.access] : {}),
       }))
       .catch((err) => {
         this.emit({ kind: "error", message: err.message });
         this.emit({ kind: "turn.done", ok: false, error: err.message });
       });
+  }
+
+  /** Panel requests (named like Claude's, so the same panels draw both agents). */
+  async query(subtype: string, payload: Record<string, unknown> = {}): Promise<unknown> {
+    const threadId = await this.ready.catch(() => undefined);
+    switch (subtype) {
+      case "mcp_status": return codexMcpPanel(await this.rpc("mcpServerStatus/list", {}));
+      case "mcp_reconnect": await this.rpc("config/mcpServer/reload", {}); return {};
+      case "get_status": {
+        const [account, limits] = await Promise.all([this.rpc("account/read", {}).catch(() => undefined), this.rpc("account/rateLimits/read", {}).catch(() => undefined)]);
+        return codexStatusSections({
+          threadId: this.mapper.threadId ?? threadId, cwd: this.cwd, model: this.model, effort: this.effort, access: this.access,
+          account, limits: limits ? codexLimits(limits.rateLimits ?? limits) : undefined,
+        });
+      }
+      case "set_permission_mode": {
+        const mode = String(payload.mode);
+        if (!CODEX_ACCESS[mode]) throw new Error(`Unknown access level: ${mode}`);
+        this.access = mode;
+        this.accessChanged = true;
+        return { mode };
+      }
+      default: throw new Error(`Codex doesn't offer ${subtype}.`);
+    }
   }
 
   /** Codex has no command parser over this protocol, so commands map to methods. */

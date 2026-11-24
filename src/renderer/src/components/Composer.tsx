@@ -137,7 +137,7 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
           {modelLabel ?? "Model"}{effort ? ` · ${effort}` : ""}<span aria-hidden="true"> ▾</span>
         </button>
         {modeLabel && onMode && (
-          <button className="model-chip" onClick={onMode} title="Choose what Claude may do without asking">
+          <button className="model-chip" onClick={onMode} title="Choose what the agent may do without asking">
             {modeLabel}<span aria-hidden="true"> ▾</span>
           </button>
         )}

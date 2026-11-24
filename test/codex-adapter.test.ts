@@ -86,3 +86,29 @@ describe("Codex helpers", () => {
     expect(out[0]).toMatchObject({ kind: "turn.done", ok: false, error: expect.stringContaining("not supported") });
   });
 });
+
+import { CODEX_ACCESS, codexAccessFromConfig, codexMcpPanel, codexStatusSections } from "../src/main/adapters/codex-mapper";
+import { mergeCommands as mergeCodexCommands } from "../src/shared/commands";
+
+describe("Codex panels", () => {
+  it("maps access presets to config and turn overrides", () => {
+    expect(codexAccessFromConfig({ sandbox_mode: "read-only" })).toBe("read-only");
+    expect(codexAccessFromConfig({ sandbox_mode: "danger-full-access" })).toBe("full");
+    expect(codexAccessFromConfig({})).toBe("auto");
+    expect(CODEX_ACCESS.full).toEqual({ approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } });
+  });
+  it("draws MCP servers like Claude's panel", () => {
+    const r = codexMcpPanel({ data: [
+      { name: "docs", runtimeStatus: "connected", tools: { a: {}, b: {} }, toolsError: null, authStatus: "unsupported", httpOrigin: null, pluginId: null },
+      { name: "linear", runtimeStatus: null, tools: {}, toolsError: null, authStatus: "notLoggedIn", httpOrigin: "https://mcp.linear.app", pluginId: null },
+    ] });
+    expect(r.mcpServers.map((s: { name: string; status: string; tools: string[] }) => [s.name, s.status, s.tools.length])).toEqual([["docs", "connected", 2], ["linear", "needs-auth", 0]]);
+  });
+  it("builds /status rows and offers the panels in the / menu", () => {
+    const st = codexStatusSections({ cwd: "/p", model: "gpt-x", effort: "high", access: "auto", account: { account: { type: "chatgpt", planType: "plus" } } });
+    expect(st.sections.map((s) => s.title)).toEqual(["Session", "Account"]);
+    expect(st.sections[0]!.rows).toContainEqual({ label: "Access", value: "Auto" });
+    const menu = mergeCodexCommands("codex", []);
+    expect(["status", "mcp", "approvals"].map((n) => menu.find((c) => c.name === n)?.run)).toEqual(["panel", "panel", "panel"]);
+  });
+});
