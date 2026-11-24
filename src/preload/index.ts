@@ -29,6 +29,8 @@ const api = {
   /** A shell in a session's folder for the Terminal pane; returns its terminal id. */
   shellOpen: (sessionId: string, cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("shell:open", sessionId, cols, rows),
   shellClose: (id: string): Promise<void> => ipcRenderer.invoke("shell:close", id),
+  /** Whether Claude Code's voice mode (/voice) is switched on in its settings. */
+  claudeVoiceOn: (): Promise<boolean> => ipcRenderer.invoke("claude:voiceOn"),
   /** Closes the copy of a Claude conversation running elsewhere once its turn is over (now: don't wait). */
   takeOver: (sessionId: string, now?: boolean): Promise<"closed" | "gone"> => ipcRenderer.invoke("session:takeOver", sessionId, now),
   takeOverCancel: (sessionId: string): Promise<void> => ipcRenderer.invoke("session:takeOverCancel", sessionId),

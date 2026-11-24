@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { join } from "node:path";
-import { mkdirSync, watch, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import type { AgentEvent, AgentId, SessionCommand } from "@shared/events";
 import { SessionManager } from "./session-manager";
 import { UsageStore } from "./usage-store";
@@ -128,6 +128,13 @@ ipcMain.handle("account:run", (_e, agent: AgentId, action: "login" | "logout", c
 ipcMain.handle("account:close", (_e, id: string) => manager.closeUtility(id));
 ipcMain.handle("shell:open", (_e, sessionId: string, cols?: number, rows?: number) => manager.openShell(sessionId, cols, rows));
 ipcMain.handle("shell:close", (_e, id: string) => manager.closeShell(id));
+// Claude Code's voice mode setting (~/.claude/settings.json); only these two fields are read.
+ipcMain.handle("claude:voiceOn", () => {
+  try {
+    const cfg = JSON.parse(readFileSync(join(app.getPath("home"), ".claude", "settings.json"), "utf8"));
+    return cfg?.voice?.enabled === true || cfg?.voiceEnabled === true;
+  } catch { return false; }
+});
 // "Bring it here": close the copy of a Claude conversation running elsewhere once its turn is
 // over, so the app can reopen it with everything it did. Progress goes to the page as it waits.
 const takeovers = new Map<string, { cancelled: boolean }>();

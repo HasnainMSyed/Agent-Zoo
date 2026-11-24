@@ -1,5 +1,10 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ModelOption, SlashCommand } from "@shared/commands";
+import type { VoiceProvider } from "../voice";
+
+const MicIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+);
 
 const RUN_LABEL: Record<SlashCommand["run"], string | null> = { send: null, action: null, model: "Picker", effort: "Picker", terminal: "Opens in Terminal", panel: "Panel" };
 
@@ -43,18 +48,25 @@ function ModelPicker({ models, model, effort, focus, onPick, onClose }: {
   );
 }
 
-export function Composer({ running, disabled, onSend, onStop, mascot, status, commands, models, model, effort, onCommand, onPickModel, panel, modeLabel, onMode }: {
+export function Composer({ running, disabled, onSend, onStop, mascot, status, commands, models, model, effort, onCommand, onPickModel, panel, modeLabel, onMode, sessionId, voice, onVoiceTerminal }: {
   running: boolean; disabled?: boolean; onSend: (text: string) => void; onStop: () => void; mascot: ReactNode; status: string;
   commands: SlashCommand[]; models: ModelOption[]; model?: string; effort?: string;
   onCommand: (cmd: SlashCommand, args: string) => void; onPickModel: (model?: string, effort?: string) => void;
   /** An open panel (Claude's /mcp, /status, /context, mode), drawn above the input box. */
   panel?: ReactNode; modeLabel?: string; onMode?: () => void;
+  /** This agent's voice (see voice.ts); a "terminal" voice calls onVoiceTerminal. */
+  sessionId?: string; voice?: VoiceProvider; onVoiceTerminal?: () => void;
 }) {
   const [text, setText] = useState("");
   const [highlight, setHighlight] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [picker, setPicker] = useState<null | "model" | "effort">(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  // Dictation: what was in the box before, the words so far, and how to stop listening.
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const stopVoice = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopVoice.current?.(), [sessionId]);
 
   // The menu shows while typing a command name: "/" followed by no space yet.
   const query = /^\/(\S*)$/.exec(text)?.[1];
@@ -94,6 +106,22 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
 
   const modelLabel = models.find((m) => m.id === model)?.label ?? model;
 
+  const toggleVoice = async () => {
+    if (!voice) return;
+    if (voice.kind === "terminal") { onVoiceTerminal?.(); return; }
+    if (listening) { stopVoice.current?.(); stopVoice.current = null; setListening(false); return; }
+    setVoiceError("");
+    const before = text ? text.replace(/\s*$/, " ") : "";
+    let done = "";
+    try {
+      stopVoice.current = await voice.start(sessionId ?? "", {
+        onText: (t, final) => { if (final) done += (done ? " " : "") + t; setValue(before + done + (final ? "" : (done ? " " : "") + t)); },
+        onError: (m) => { setVoiceError(m); setListening(false); stopVoice.current = null; },
+      });
+      setListening(true);
+    } catch (err) { setVoiceError(err instanceof Error ? err.message : String(err)); }
+  };
+
   return (
     <div className="composer">
       <div className="composer-mascot">{mascot}<span className="composer-status">{status}</span></div>
@@ -128,6 +156,13 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
             if (e.key === "Escape" && running) onStop();
             if (e.key === "Escape" && picker) setPicker(null);
           }} />
+        {voice && (
+          <button className={`mic ${listening ? "on" : ""}`} onClick={toggleVoice} disabled={disabled || (voice.kind === "terminal" && running)}
+            aria-pressed={voice.kind === "dictate" ? listening : undefined} aria-label={listening ? "Stop listening" : "Voice"}
+            title={voice.kind === "terminal" && running ? "Wait for the agent to finish, or stop it, to talk" : listening ? "Stop listening" : voice.title}>
+            <MicIcon />
+          </button>
+        )}
         {running
           ? <button className="send stop" onClick={onStop} aria-label="Stop">Stop</button>
           : <button className="send" onClick={submit} disabled={!text.trim() || disabled} aria-label="Send">Send</button>}
@@ -141,6 +176,7 @@ export function Composer({ running, disabled, onSend, onStop, mascot, status, co
             {modeLabel}<span aria-hidden="true"> ▾</span>
           </button>
         )}
+        {voiceError && <span className="voice-error" role="alert">{voiceError}</span>}
         <span className="composer-hint">Enter to send · Shift+Enter for a new line · / for commands{running ? " · Esc to stop" : ""}</span>
       </div>
     </div>

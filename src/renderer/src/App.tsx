@@ -17,6 +17,7 @@ import { Subagents, subagentsOf } from "./components/Subagents";
 import { applySettings, loadSettings, saveSettings, type Settings } from "./settings";
 import { CODEX_PANELS, type PanelKind, type PastSession, type UsageLimits } from "@shared/commands";
 import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
+import { VOICE } from "./voice";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
 
@@ -110,6 +111,8 @@ export function App() {
   const [lastOpen, setLastOpen] = usePersisted<string | null>("zoo.lastSession", null);
   // "Open elsewhere": the question being asked, and conversations waiting to be brought here.
   const [elsewhere, setElsewhere] = useState<PastSession | null>(null);
+  // The session whose Terminal view was opened to talk (shows how voice works there).
+  const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const [bringing, setBringing] = useState<Record<string, { p: PastSession; status: string }>>({});
   // The Terminal pane: shells per session, whether it's showing, and its width.
   const [shells, setShells] = useState<ShellState>({});
@@ -463,6 +466,13 @@ export function App() {
             </div>
           </header>
         )}
+        {active?.view === "terminal" && voiceHint === active.info.id && VOICE[active.info.agent]?.kind === "terminal" && (
+          <div className="voice-hint" role="status">
+            <span className="voice-dot" aria-hidden="true" />
+            <span>{(VOICE[active.info.agent] as { hint: string }).hint}</span>
+            <button className="icon-btn" onClick={() => setVoiceHint(null)} aria-label="Dismiss">×</button>
+          </div>
+        )}
         {active?.view === "terminal" ? <TerminalView key={active.info.id} sessionId={active.info.id} /> : <>
         {active ? <Transcript items={active.items} onDecide={decide} empty={empty} /> : <div className="home-scroll">{empty}</div>}
         {active && (
@@ -483,6 +493,13 @@ export function App() {
             modeLabel={active.info.agent === "claude" ? modeLabel(active.permissionMode ?? "default")
               : active.info.agent === "codex" ? `Access: ${modeLabel(active.permissionMode ?? "auto", "codex")}` : undefined}
             onMode={() => setPanel(panel?.kind === "mode" && panel.sessionId === active.info.id ? null : { sessionId: active.info.id, kind: "mode" })}
+            sessionId={active.info.id} voice={VOICE[active.info.agent]}
+            onVoiceTerminal={async () => {
+              const v = VOICE[active.info.agent];
+              const typed = v?.kind === "terminal" ? await v.typeOnOpen?.().catch(() => undefined) : undefined;
+              setVoiceHint(active.info.id);
+              switchView(active.info.id, "terminal", typed);
+            }}
             mascot={<Mascot pack={pack} state={active.status} size={56} />}
             status={active.exited ? "Session ended" : mascotLabel(active.status)} />
           </div>
