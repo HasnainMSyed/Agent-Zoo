@@ -1,0 +1,26 @@
+# Builds the Linux packages and publishes them as a GitHub release when a version tag (v0.2.0, …)
+# is pushed. Installed copies of Agent Zoo find the release and offer the update.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx electron-vite build && npx electron-builder --linux deb AppImage --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

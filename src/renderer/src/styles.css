@@ -709,3 +709,11 @@ body.resizing .shell-pane, body.resizing .main-col { pointer-events: none; }
 .voice-hint > span:nth-child(2) { flex: 1; }
 .voice-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
 .reduce-motion .voice-dot, .reduce-motion .composer-box .mic.on { animation: none; }
+
+/* ---------- Update prompt ---------- */
+.update-toast { position: fixed; right: 18px; bottom: 18px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: flex; gap: 12px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--surface); color: var(--text); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 18px 50px rgba(0,0,0,.35); animation: rise .25s var(--ease); }
+.update-icon { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 700; }
+.update-text { display: grid; gap: 4px; font-size: 13px; min-width: 0; }
+.update-text > span { color: var(--muted); line-height: 1.4; }
+.update-extra { font-size: 12px; }
+.update-actions { display: flex; gap: 8px; margin-top: 6px; }

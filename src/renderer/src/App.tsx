@@ -96,6 +96,36 @@ function ElsewhereDialog({ p, onBring, onAnyway, onCancel }: { p: PastSession; o
   );
 }
 
+type UpdateInfo = Awaited<ReturnType<typeof window.agents.updateState>>;
+const REOPEN_KEY = "zoo.reopenAfterUpdate";
+
+/** "A new version is ready": waits for working agents, then restarts into it. */
+function UpdatePrompt({ update, busy, extras, waiting, onUpdate, onCancel, onLater }: {
+  update: UpdateInfo; busy: number; extras: string[]; waiting: boolean;
+  onUpdate: () => void; onCancel: () => void; onLater: () => void;
+}) {
+  return (
+    <div className="update-toast" role="status" aria-live="polite">
+      <div className="update-icon" aria-hidden="true">↑</div>
+      <div className="update-text">
+        {waiting ? <>
+          <strong>Updating once your agents finish</strong>
+          <span>{busy} {busy === 1 ? "agent is" : "agents are"} still working. Agent Zoo restarts into {update.version} as soon as {busy === 1 ? "it's" : "they're"} done, and your sessions reopen.</span>
+        </> : <>
+          <strong>Agent Zoo {update.version} is ready</strong>
+          <span>Restarts in a moment and reopens your sessions where they were.{busy ? ` It waits for ${busy === 1 ? "the agent that's" : `the ${busy} agents that are`} working.` : ""}</span>
+          {extras.map((x) => <span key={x} className="update-extra">{x}</span>)}
+        </>}
+        <div className="update-actions">
+          {waiting
+            ? <><button className="btn-small" onClick={onCancel}>Cancel</button></>
+            : <><button className="btn-primary" onClick={onUpdate}>Update</button><button className="btn-ghost" onClick={onLater}>Later</button></>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [layoutState, setLayoutState] = usePersisted("zoo.layout", { left: true, right: true });
   const layout = layoutState;
@@ -113,6 +143,11 @@ export function App() {
   const [elsewhere, setElsewhere] = useState<PastSession | null>(null);
   // The session whose Terminal view was opened to talk (shows how voice works there).
   const [voiceHint, setVoiceHint] = useState<string | null>(null);
+  // A new version of the app: what's downloaded, whether it's put off till later, and whether it's waiting for agents.
+  const [update, setUpdate] = useState<UpdateInfo>({ status: "idle" });
+  const [updateLater, setUpdateLater] = useState(false);
+  const [updateWaiting, setUpdateWaiting] = useState(false);
+  useEffect(() => { window.agents.updateState().then(setUpdate).catch(() => {}); return window.agents.onUpdate(setUpdate); }, []);
   const [bringing, setBringing] = useState<Record<string, { p: PastSession; status: string }>>({});
   // The Terminal pane: shells per session, whether it's showing, and its width.
   const [shells, setShells] = useState<ShellState>({});
@@ -271,6 +306,14 @@ export function App() {
   useEffect(() => {
     if (restored.current || pastLoading || !cwd) return;
     restored.current = true;
+    // Back from an update: every session that was open starts again, the one you were in last.
+    let after: { keys: string[]; active: string | null } | null = null;
+    try { after = JSON.parse(localStorage.getItem(REOPEN_KEY) ?? "null"); localStorage.removeItem(REOPEN_KEY); } catch { /* none */ }
+    if (after?.keys.length && !list.length && !autoStart) {
+      const order = [...after.keys.filter((k) => k !== after!.active), ...(after.active && after.keys.includes(after.active) ? [after.active] : [])];
+      (async () => { for (const k of order) { const p = past.find((x) => keyOf(x) === k); if (p) await start(p.agent, { cwd: p.cwd, resumeId: p.id }); } })();
+      return;
+    }
     const last = settings.reopenLast && lastOpen && kept.includes(lastOpen) ? past.find((p) => keyOf(p) === lastOpen) : undefined;
     if (last && !last.liveElsewhere && !list.length && !autoStart) start(last.agent, { cwd: last.cwd, resumeId: last.id });
   }, [pastLoading, cwd]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -302,6 +345,19 @@ export function App() {
     await start(p.agent, { cwd: p.cwd, resumeId: p.id });
     refreshPast();
   };
+
+  // Updating: wait until no agent is mid-turn, note which sessions to reopen, then restart.
+  const busyCount = list.filter((x) => x.running).length;
+  const installNow = () => {
+    const keys = list.map(nativeKey).filter((k): k is string => Boolean(k));
+    try { localStorage.setItem(REOPEN_KEY, JSON.stringify({ keys, active: active ? nativeKey(active) : null })); } catch { /* storage unavailable */ }
+    window.agents.updateInstall().catch((err) => { setUpdateWaiting(false); setStartError(err instanceof Error ? err.message : String(err)); });
+  };
+  useEffect(() => { if (updateWaiting && busyCount === 0) installNow(); }, [updateWaiting, busyCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  const updateExtras = [
+    ...(Object.values(shells).some((x) => x.list.some((sh) => !sh.exited)) ? ["Open terminals in the Terminal pane will close."] : []),
+    ...(list.some((x) => x.view === "terminal") ? ["Sessions in Terminal view reopen in Chat."] : []),
+  ];
 
   /** Reopens a saved conversation, or switches to it if it's already open here. */
   const resumePast = (ps: PastSession) => {
@@ -559,6 +615,11 @@ export function App() {
           onSelect={selectSession} onResume={resumePast} onOpenMany={openMany}
           onPin={(path) => { setPinned([...new Set([...pinned, path])]); setNavFolded(navFolded.filter((k) => k !== path)); }} onOpenCloud={openCloud} onCloudTask={setCloudTask}
           onDismiss={() => setBrowsing(false)} />
+      )}
+      {update.status === "ready" && !updateLater && (
+        <UpdatePrompt update={update} busy={busyCount} extras={updateExtras} waiting={updateWaiting}
+          onUpdate={() => (busyCount ? setUpdateWaiting(true) : installNow())}
+          onCancel={() => setUpdateWaiting(false)} onLater={() => setUpdateLater(true)} />
       )}
       {elsewhere && (
         <ElsewhereDialog p={elsewhere} onCancel={() => setElsewhere(null)}

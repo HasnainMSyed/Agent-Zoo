@@ -1,6 +1,6 @@
 {
   "name": "agent-zoo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "description": "A desktop app for Claude Code, Codex and Grok, with mascots",
@@ -12,11 +12,12 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "dist": "electron-vite build && electron-builder --linux deb AppImage"
+    "dist": "electron-vite build && electron-builder --linux deb AppImage --publish never"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
+    "electron-updater": "6.8.12",
     "node-pty": "1.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
@@ -76,7 +77,15 @@
         "libuuid1",
         "libsecret-1-0"
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "HasnainMSyed",
+        "repo": "Agent-Zoo",
+        "releaseType": "release"
+      }
+    ]
   },
   "desktopName": "agent-zoo.desktop"
 }

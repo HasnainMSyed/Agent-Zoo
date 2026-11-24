@@ -13,6 +13,7 @@ import { MascotStore } from "./mascots";
 import { userInfo } from "node:os";
 import { loadShellPath } from "./env";
 import { takeOverClaude } from "./live-sessions";
+import { installUpdate, startUpdates, updateState } from "./updater";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
 // AGENTS_GUI_TEST_PROFILE=name keeps one between runs (to test what survives a restart).
@@ -149,6 +150,8 @@ ipcMain.handle("session:takeOver", async (_e, sessionId: string, now?: boolean) 
   } finally { if (takeovers.get(sessionId) === job) takeovers.delete(sessionId); }
 });
 ipcMain.handle("session:takeOverCancel", (_e, sessionId: string) => { const j = takeovers.get(sessionId); if (j) j.cancelled = true; });
+ipcMain.handle("update:get", () => updateState());
+ipcMain.handle("update:install", () => installUpdate());
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));
@@ -189,6 +192,7 @@ app.whenReady().then(async () => {
   const endpoint = claudeEndpoint();
   if (endpoint) usage.update({ agent: "claude", endpoint });
   createWindow();
+  if (!process.env.AGENTS_GUI_SCREENSHOT || process.env.AGENTS_GUI_UPDATE_URL || process.env.AGENTS_GUI_FAKE_UPDATE) startUpdates(() => win);
   // Sessions saved by Claude anywhere (including plain terminals) show up in the sidebar.
   watchClaudeSessions(() => win?.webContents.send("sessions:changed"));
   // Grok's plan limits are read from its own /usage screen: at launch, then every 15 minutes.

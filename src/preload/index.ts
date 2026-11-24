@@ -29,6 +29,14 @@ const api = {
   /** A shell in a session's folder for the Terminal pane; returns its terminal id. */
   shellOpen: (sessionId: string, cols?: number, rows?: number): Promise<string> => ipcRenderer.invoke("shell:open", sessionId, cols, rows),
   shellClose: (id: string): Promise<void> => ipcRenderer.invoke("shell:close", id),
+  /** A new version: whether one is downloading or ready, and restarting into it. */
+  updateState: (): Promise<{ status: "idle" | "downloading" | "ready" | "error"; version?: string; percent?: number; error?: string }> => ipcRenderer.invoke("update:get"),
+  updateInstall: (): Promise<void> => ipcRenderer.invoke("update:install"),
+  onUpdate(cb: (s: { status: "idle" | "downloading" | "ready" | "error"; version?: string; percent?: number; error?: string }) => void) {
+    const listener = (_: unknown, s: Parameters<typeof cb>[0]) => cb(s);
+    ipcRenderer.on("update:state", listener);
+    return () => { ipcRenderer.removeListener("update:state", listener); };
+  },
   /** Whether Claude Code's voice mode (/voice) is switched on in its settings. */
   claudeVoiceOn: (): Promise<boolean> => ipcRenderer.invoke("claude:voiceOn"),
   /** Closes the copy of a Claude conversation running elsewhere once its turn is over (now: don't wait). */
