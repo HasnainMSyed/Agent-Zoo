@@ -144,7 +144,7 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
           <h2>Profile</h2>
           <div className="profile-head">
             <span className="avatar big" aria-hidden="true">{initials(name)}</span>
-            <div><strong>{name}</strong><span className="muted small">A local profile on this computer. There's no Prompt Habitat account; each agent keeps its own sign-in.</span></div>
+            <div><strong>{name}</strong><span className="muted small">A local profile on this computer. There's no Agent Zoo account; each agent keeps its own sign-in.</span></div>
           </div>
           <Row title="Display name" hint={`Leave empty to use your computer's user name (${user || "unknown"})`}>
             <input className="text-input" value={settings.displayName} placeholder={user} onChange={(e) => set("displayName", e.target.value)} />
@@ -241,7 +241,7 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
         <section id="set-about" className="set-card">
           <h2>About</h2>
           <dl className="about">
-            <dt>Prompt Habitat</dt><dd>{version}</dd>
+            <dt>Agent Zoo</dt><dd>{version}</dd>
             {AGENTS.map((a) => (
               <Fragment key={a}><dt>{AGENT_NAMES[a]}</dt><dd>{accts ? (accts[a].installed ? accts[a].version ?? "installed" : "not installed") : "…"}</dd></Fragment>
             ))}
@@ -258,7 +258,7 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
               <path className="saucer" d="M8 56h48" />
             </svg>
             <div>
-              <p>Prompt Habitat is free, and it keeps three agents fed. If it saves you some time, you can buy its keeper a coffee.</p>
+              <p>Agent Zoo is free, and it keeps three agents fed. If it saves you some time, you can buy its keeper a coffee.</p>
               <p className="muted small">The zoo runs on caffeine and good bug reports. Both are welcome.</p>
               {COFFEE_URL
                 ? <button className="btn-primary" onClick={() => window.open(COFFEE_URL, "_blank")}>Buy me a coffee</button>

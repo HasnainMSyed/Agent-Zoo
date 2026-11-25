@@ -1,4 +1,4 @@
-# Builds Prompt Habitat for Linux, Windows and macOS.
+# Builds Agent Zoo for Linux, Windows and macOS.
 #  - Pushing a version tag (v0.3.0, …) publishes a GitHub release with every package; installed
 #    copies find it and offer the update.
 #  - Running it by hand ("Run workflow") is a test build: nothing is published, and the packages
@@ -19,7 +19,7 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     steps:
-      - run: gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --title "Prompt Habitat ${TAG#v}" --generate-notes
+      - run: gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --title "Agent Zoo ${TAG#v}" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -59,7 +59,7 @@ jobs:
         if: github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: prompt-habitat-${{ runner.os }}
+          name: agent-zoo-${{ runner.os }}
           retention-days: 7
           path: |
             dist/*.deb

@@ -106,7 +106,7 @@ export async function rpcSession(cmd: string, args: string[], jsonrpc: boolean, 
 /** Codex plan limits and plan, on request (the Refresh buttons). */
 export async function codexLimitsNow(onLimits: (e: AgentEvent[]) => void): Promise<void> {
   await rpcSession("codex", ["app-server"], false, async (rpc, notify) => {
-    await rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Prompt Habitat", version: "0.1.0" }, capabilities: null });
+    await rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Agent Zoo", version: "0.1.0" }, capabilities: null });
     notify("initialized");
     const [limits, account] = await Promise.all([rpc("account/rateLimits/read", {}).catch(() => undefined), rpc("account/read", {}).catch(() => undefined)]);
     if (limits) onLimits(codexLimits(limits.rateLimits ?? limits));
@@ -117,7 +117,7 @@ export async function codexLimitsNow(onLimits: (e: AgentEvent[]) => void): Promi
 async function codexSessions(onLimits: (e: AgentEvent[]) => void): Promise<PastSession[]> {
   const out: PastSession[] = [];
   await rpcSession("codex", ["app-server"], false, async (rpc, notify) => {
-    await rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Prompt Habitat", version: "0.1.0" }, capabilities: null });
+    await rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Agent Zoo", version: "0.1.0" }, capabilities: null });
     notify("initialized");
     const [list, limits, account] = await Promise.all([
       rpc("thread/list", { limit: LIMIT }),

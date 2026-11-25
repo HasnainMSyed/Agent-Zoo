@@ -70,7 +70,7 @@ export class CodexSession implements AgentSession {
   }
 
   private async handshake(): Promise<string> {
-    await this.rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Prompt Habitat", version: "0.1.0" }, capabilities: null });
+    await this.rpc("initialize", { clientInfo: { name: "agent-zoo", title: "Agent Zoo", version: "0.1.0" }, capabilities: null });
     this.write({ method: "initialized" });
     // The configured model can be one the account can't use, so start on the server's default.
     const models = await this.rpc("model/list", {});

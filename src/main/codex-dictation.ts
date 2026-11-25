@@ -2,7 +2,7 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 
 export function codexDictationKey(): string {
   const key = process.env.OPENAI_API_KEY?.trim();
-  if (!key) throw new Error("To dictate, launch Prompt Habitat with OPENAI_API_KEY set. Talk to Codex uses your Codex sign-in.");
+  if (!key) throw new Error("To dictate, launch Agent Zoo with OPENAI_API_KEY set. Talk to Codex uses your Codex sign-in.");
   return key;
 }
 

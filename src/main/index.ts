@@ -18,7 +18,7 @@ import { installUpdate, startUpdates, updateState } from "./updater";
 import { fileStat, listDir, readFileFor, writeFileFor } from "./files";
 import { localServers } from "./local-servers";
 import { codexDictationKey, transcribeCodexAudio } from "./codex-dictation";
-import logoPath from "../renderer/src/assets/prompt-habitat-logo.png?asset";
+import logoPath from "../renderer/src/assets/agent-zoo-logo.png?asset";
 
 // Screenshot runs get a throwaway profile, so test clicks never change the real app's saved layout.
 // AGENTS_GUI_TEST_PROFILE=name keeps one between runs (to test what survives a restart).
@@ -57,7 +57,7 @@ function createWindow() {
   const offscreen = Boolean(process.env.AGENTS_GUI_SCREENSHOT);
   win = new BrowserWindow({
     width: 1280, height: 860, minWidth: 760, minHeight: 520, show: !offscreen,
-    title: "Prompt Habitat", icon: logoPath, backgroundColor: "#191919", autoHideMenuBar: true,
+    title: "Agent Zoo", icon: logoPath, backgroundColor: "#191919", autoHideMenuBar: true,
     webPreferences: { preload: join(import.meta.dirname, "../preload/index.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen, webviewTag: true },
   });
   // Links in agent output open in the system browser, never inside the app.

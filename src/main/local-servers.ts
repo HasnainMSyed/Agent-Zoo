@@ -55,5 +55,5 @@ export function localServers(): { port: number; name?: string }[] {
   } catch { /* /proc unreadable */ }
   const ports = [...new Set(inodes.values())].sort((a, b) => a - b);
   // Only servers started by this user (their program is visible); others are system services.
-  return ports.filter((p) => names.has(p) && !/^(electron|agent-zoo|prompt-habitat|chrome|code|claude|codex|grok)$/i.test(names.get(p)!)).map((port) => ({ port, name: names.get(port) }));
+  return ports.filter((p) => names.has(p) && !/^(electron|agent-zoo|chrome|code|claude|codex|grok)$/i.test(names.get(p)!)).map((port) => ({ port, name: names.get(port) }));
 }

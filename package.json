@@ -53,8 +53,8 @@
   },
   "build": {
     "appId": "io.github.hasnainmsyed.agentzoo",
-    "productName": "Prompt Habitat",
-    "icon": "src/renderer/src/assets/prompt-habitat-logo.png",
+    "productName": "Agent Zoo",
+    "icon": "src/renderer/src/assets/agent-zoo-logo.png",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -105,14 +105,14 @@
           ]
         }
       ],
-      "executableName": "PromptHabitat"
+      "executableName": "AgentZoo"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "shortcutName": "Prompt Habitat",
-      "artifactName": "Prompt-Habitat-Setup-${version}.${ext}"
+      "shortcutName": "Agent Zoo",
+      "artifactName": "Agent-Zoo-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -131,7 +131,7 @@
       ],
       "category": "public.app-category.developer-tools",
       "identity": null,
-      "artifactName": "Prompt-Habitat-${version}-${arch}.${ext}"
+      "artifactName": "Agent-Zoo-${version}-${arch}.${ext}"
     }
   },
   "desktopName": "agent-zoo.desktop"

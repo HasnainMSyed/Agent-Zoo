@@ -30,7 +30,7 @@ import { TerminalView, clearTerminalBuffer } from "./components/TerminalView";
 import { VOICE } from "./voice";
 import { desktopAlert, playSound, type AlertKind } from "./alerts";
 import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
-import logoUrl from "./assets/prompt-habitat-logo.png";
+import logoUrl from "./assets/agent-zoo-logo.png";
 
 const AGENT_NAMES: Record<AgentId, string> = { claude: "Claude Code", codex: "Codex", grok: "Grok" };
 
@@ -127,9 +127,9 @@ function UpdatePrompt({ update, busy, extras, waiting, onUpdate, onCancel, onLat
       <div className="update-text">
         {waiting ? <>
           <strong>Updating once your agents finish</strong>
-          <span>{busy} {busy === 1 ? "agent is" : "agents are"} still working. Prompt Habitat restarts into {update.version} as soon as {busy === 1 ? "it's" : "they're"} done, and your sessions reopen.</span>
+          <span>{busy} {busy === 1 ? "agent is" : "agents are"} still working. Agent Zoo restarts into {update.version} as soon as {busy === 1 ? "it's" : "they're"} done, and your sessions reopen.</span>
         </> : <>
-          <strong>Prompt Habitat {update.version} is ready</strong>
+          <strong>Agent Zoo {update.version} is ready</strong>
           <span>Restarts in a moment and reopens your sessions where they were.{busy ? ` It waits for ${busy === 1 ? "the agent that's" : `the ${busy} agents that are`} working.` : ""}</span>
           {extras.map((x) => <span key={x} className="update-extra">{x}</span>)}
         </>}
@@ -315,7 +315,7 @@ export function App() {
     if (view === "gui") clearTerminalBuffer(id);
     try {
       // An app window left open across an update can run a newer page against an older bridge.
-      if (typeof window.agents.setView !== "function") throw new Error("Prompt Habitat was updated while it was open. Quit it and start it again to finish updating.");
+      if (typeof window.agents.setView !== "function") throw new Error("Agent Zoo was updated while it was open. Quit it and start it again to finish updating.");
       await window.agents.setView(id, view, undefined, undefined, typeOnOpen);
     } catch (err) { showError(id, err); }
   };
@@ -549,7 +549,7 @@ export function App() {
       {layout.left ? (
         <aside className="sidebar">
           <div className="sidebar-head">
-            <div className="brand"><img src={logoUrl} alt="" width={32} height={32} />Prompt Habitat</div>
+            <div className="brand"><img src={logoUrl} alt="" width={32} height={32} />Agent Zoo</div>
             <button className="icon-btn" onClick={() => setPalette(true)} aria-label="Search (Ctrl+K)" title="Search sessions, folders and actions (Ctrl+K)">⌕</button>
             <button className="icon-btn" onClick={() => setLayout({ left: false })} aria-label="Hide the sessions panel" title="Hide the sessions panel">«</button>
           </div>

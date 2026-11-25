@@ -1,4 +1,4 @@
-// Voice input, one entry per agent. Each agent's voice is its own provider's: Prompt Habitat never
+// Voice input, one entry per agent. Each agent's voice is its own provider's: Agent Zoo never
 // records audio for one agent and sends it to another company's service.
 //
 import type { AgentId } from "@shared/events";
