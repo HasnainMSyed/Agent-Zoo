@@ -826,3 +826,4 @@ body.resizing .shell-pane, body.resizing .main-col { pointer-events: none; }
 .theme-swatch span { flex: 1; min-width: 0; }
 .swatch-reset { border: 0; background: none; color: var(--muted); padding: 0 2px; }
 .theme-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.browser-failed { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; background: var(--canvas); color: var(--text); font-size: 13px; }

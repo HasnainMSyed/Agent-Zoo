@@ -17,6 +17,7 @@ import { takeOverClaude } from "./live-sessions";
 import { installUpdate, startUpdates, updateState } from "./updater";
 import { fileStat, listDir, readFileFor, writeFileFor } from "./files";
 import { localServers } from "./local-servers";
+import { guardBrowserPage, PARTITION as BROWSER_PARTITION, setUpBrowserSession } from "./browser-pane";
 import { codexDictationKey, transcribeCodexAudio } from "./codex-dictation";
 import logoPath from "../renderer/src/assets/agent-zoo-logo.png?asset";
 
@@ -67,20 +68,14 @@ function createWindow() {
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   // The Browser pane's <webview>: web pages only, with no preload, no Node, sandboxed, and their
-  // own cookie storage. Pages that open a new window go to the system browser instead.
+  // own cookie storage (see browser-pane.ts).
   win.webContents.on("will-attach-webview", (e, prefs, params) => {
     delete (prefs as { preload?: string }).preload;
     prefs.nodeIntegration = false; prefs.nodeIntegrationInSubFrames = false;
     prefs.contextIsolation = true; prefs.sandbox = true; prefs.webSecurity = true;
-    if (!/^(https?:|about:blank)/.test(params.src ?? "") || params.partition !== "persist:browser-pane") e.preventDefault();
+    if (!/^(https?:|about:blank)/.test(params.src ?? "") || params.partition !== BROWSER_PARTITION) e.preventDefault();
   });
-  win.webContents.on("did-attach-webview", (_e, contents) => {
-    contents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:/.test(url)) import("electron").then(({ shell }) => shell.openExternal(url));
-      return { action: "deny" };
-    });
-    contents.on("will-navigate", (e, url) => { if (!/^https?:/.test(url)) e.preventDefault(); });
-  });
+  win.webContents.on("did-attach-webview", (_e, contents) => guardBrowserPage(contents));
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else win.loadFile(join(import.meta.dirname, "../renderer/index.html"));
   win.on("closed", () => { win = null; });
@@ -229,7 +224,8 @@ ipcMain.handle("app:info", () => ({
 app.whenReady().then(async () => {
   // Installed copies start from the desktop menu, without a terminal's PATH (see env.ts).
   if (app.isPackaged) await loadShellPath();
-  usage = new UsageStore((all) => win?.webContents.send("usage:update", all));
+  setUpBrowserSession();
+  usage =new UsageStore((all) => win?.webContents.send("usage:update", all));
   mascots = new MascotStore(join(app.getPath("userData"), "mascots"));
   // New or edited packs (including ones Claude draws in "Make a mascot") show up by themselves.
   let mascotTimer: NodeJS.Timeout | undefined;

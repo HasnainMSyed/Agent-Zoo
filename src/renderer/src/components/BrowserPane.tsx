@@ -1,25 +1,15 @@
 // The Browser pane: a small browser beside the chat, for looking at what the agents are building
-// (a dev server on localhost) or any web page. Pages run sandboxed, with their own cookies, and
-// can't reach the app. Links that open a new window go to your normal browser.
+// (a dev server on localhost) or any website. Pages run sandboxed, with their own cookies, and
+// can't reach the app. Links that open a new tab open here; sign-in pop-ups get a small window.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PaneFrame } from "./ShellPane";
+import { loadError, toUrl } from "../browser-url";
 
 /** The parts of Electron's <webview> element this pane uses. */
 interface Webview extends HTMLElement {
   loadURL(url: string): Promise<void>; getURL(): string; getTitle(): string;
   canGoBack(): boolean; canGoForward(): boolean; goBack(): void; goForward(): void; reload(): void; stop(): void;
-}
-
-/** Turns what was typed into a URL: "localhost:3000", "3000", "example.com" or a full address. */
-export function toUrl(input: string): string | null {
-  const t = input.trim();
-  if (!t) return null;
-  if (/^\d{2,5}$/.test(t)) return `http://localhost:${t}`;
-  if (/^https?:\/\//i.test(t)) return t;
-  if (/^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?(\/.*)?$/i.test(t)) return `http://${t}`;
-  if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(t)) return `https://${t}`;
-  return null;
 }
 
 export function BrowserPane({ visible, width, setWidth, onHide }: { visible: boolean; width: number; setWidth: (w: number) => void; onHide: () => void }) {
@@ -28,7 +18,7 @@ export function BrowserPane({ visible, width, setWidth, onHide }: { visible: boo
   const [typed, setTyped] = useState("");
   const [nav, setNav] = useState({ back: false, forward: false, loading: false, title: "" });
   const [servers, setServers] = useState<{ port: number; name?: string }[] | null>(null);
-  const [bad, setBad] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null); // why the page didn't load
 
   // The start page lists dev servers running on this computer.
   const findServers = useCallback(() => { window.agents.browserServers().then(setServers).catch(() => setServers([])); }, []);
@@ -46,7 +36,13 @@ export function BrowserPane({ visible, width, setWidth, onHide }: { visible: boo
         if (u && u !== "about:blank") { setUrl(u); setTyped(u); }
       } catch { /* not ready yet */ }
     };
-    w.addEventListener("did-start-loading", () => setNav((n) => ({ ...n, loading: true })));
+    w.addEventListener("did-start-loading", () => { setFailed(null); setNav((n) => ({ ...n, loading: true })); });
+    w.addEventListener("did-fail-load", (ev) => {
+      const e = ev as Event & { errorCode: number; errorDescription: string; isMainFrame: boolean; validatedURL: string };
+      if (!e.isMainFrame || e.errorCode === -3) return; // -3: replaced by another load
+      setFailed(loadError(e.errorCode, e.errorDescription));
+      if (e.validatedURL) { setUrl(e.validatedURL); setTyped(e.validatedURL); }
+    });
     w.addEventListener("did-stop-loading", sync);
     w.addEventListener("did-navigate", sync);
     w.addEventListener("did-navigate-in-page", sync);
@@ -55,8 +51,8 @@ export function BrowserPane({ visible, width, setWidth, onHide }: { visible: boo
 
   const go = (input: string) => {
     const next = toUrl(input);
-    if (!next) { setBad(true); return; }
-    setBad(false); setUrl(next); setTyped(next);
+    if (!next) return;
+    setUrl(next); setTyped(next);
     if (view.current) view.current.loadURL(next).catch(() => {});
   };
 
@@ -72,14 +68,20 @@ export function BrowserPane({ visible, width, setWidth, onHide }: { visible: boo
         <button type="button" className="icon-btn" disabled={!nav.forward} onClick={() => view.current?.goForward()} aria-label="Forward" title="Forward">›</button>
         <button type="button" className="icon-btn" disabled={!url} onClick={() => (nav.loading ? view.current?.stop() : view.current?.reload())}
           aria-label={nav.loading ? "Stop" : "Reload"} title={nav.loading ? "Stop" : "Reload"}>{nav.loading ? "×" : "↻"}</button>
-        <input className={`text-input ${bad ? "bad" : ""}`} value={typed} onChange={(e) => { setTyped(e.target.value); setBad(false); }}
-          placeholder="localhost:5173, a port, or a web address" aria-label="Address" spellCheck={false}
+        <input className="text-input" value={typed} onChange={(e) => setTyped(e.target.value)}
+          placeholder="Search, or type an address or port" aria-label="Address" spellCheck={false}
           onFocus={(e) => e.currentTarget.select()} />
         {url && <button type="button" className="icon-btn" onClick={() => { setUrl(null); setTyped(""); }} aria-label="Start page" title="Start page">⌂</button>}
       </form>
       {nav.loading && <div className="url-progress" aria-hidden="true" />}
       <div className="browser-body">
         {/* The webview stays mounted, so pages keep running while the pane is hidden. */}
+        {url && failed && (
+          <div className="browser-failed">
+            <p>{failed}</p>
+            <button className="btn-small" onClick={() => view.current?.reload()}>Try again</button>
+          </div>
+        )}
         <webview ref={attach} src="about:blank" partition="persist:browser-pane" hidden={!url} className="browser-view" />
         {!url && (
           <div className="browser-start">
@@ -93,9 +95,8 @@ export function BrowserPane({ visible, width, setWidth, onHide }: { visible: boo
                     </button>
                   ))}
                 </div>
-              ) : <p className="muted tiny">No dev servers found. Start one (npm run dev, for example) or type an address above.</p>}
+              ) : <p className="muted tiny">No dev servers found. Start one (npm run dev, for example), or search or type any web address above.</p>}
             <button className="btn-small" onClick={findServers}>Look again</button>
-            {bad && <p className="voice-error">That doesn't look like a web address.</p>}
           </div>
         )}
       </div>
