@@ -436,8 +436,51 @@ code, pre { font-family: var(--font-mono); font-size: 12.5px; }
 .settings-nav { display: flex; flex-direction: column; gap: 2px; padding: 22px 12px; border-right: 1px solid var(--line); }
 .settings-title { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 12px; }
 .settings-title h1 { margin: 0; font-size: 19px; }
-.settings-nav > button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: var(--r-sm); font-size: 13px; color: var(--muted); }
-.settings-nav > button:hover { background: var(--surface-2); color: var(--text); }
+.settings-tabs { display: flex; flex-direction: column; gap: 3px; }
+.settings-tabs > button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: var(--r-md); color: var(--muted); display: flex; gap: 10px; align-items: center; position: relative; }
+.settings-tabs > button:hover { background: var(--surface-2); color: var(--text); }
+.settings-tabs > button.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--text); }
+.settings-tabs > button.on::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 3px; background: var(--accent); }
+.settings-tabs > button.on .tab-icon { color: var(--accent); }
+.tab-icon { display: grid; place-items: center; flex: none; }
+.tab-text { display: flex; flex-direction: column; min-width: 0; font-size: 13.5px; font-weight: 500; }
+.tab-text small { font-size: 11.5px; font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-body > .set-card { animation: panel-in .18s var(--ease); }
+.reduce-motion .settings-body > .set-card { animation: none; }
+
+/* Settings → General → About, Technical */
+.about-links { display: flex; gap: 8px; margin-top: 10px; }
+.shortcuts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0; font-size: 13px; }
+.shortcuts dt { white-space: nowrap; } .shortcuts dd { margin: 0; color: var(--muted); }
+kbd { font: 11.5px var(--mono, ui-monospace, monospace); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; background: var(--canvas); }
+.btn-small.danger { border-color: var(--bad); color: var(--bad); }
+
+/* The feedback card (Feedback.tsx) */
+.set-card.feedback { position: relative; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 9%, var(--surface)), var(--surface) 60%); animation: rise .35s var(--ease); gap: 12px; }
+.feedback-close { position: absolute; top: 10px; right: 10px; }
+.feedback-head { display: flex; gap: 12px; align-items: center; padding-right: 28px; }
+.feedback-head h2 { margin: 0 0 2px; }
+.feedback-head > div:last-child { display: flex; flex-direction: column; }
+.feedback-faces { display: flex; gap: 12px; }
+.face { flex: 1; max-width: 140px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px 10px; border: 1.5px solid var(--line); border-radius: var(--r-lg); background: var(--canvas); color: var(--text); font-weight: 600; font-size: 13px;
+  --face: var(--muted); transition: transform .18s var(--ease), border-color .18s, box-shadow .18s, background .18s; }
+.face-bad { --face: var(--bad); } .face-fine { --face: var(--warn); } .face-good { --face: var(--ok); }
+.face svg { width: 46px; height: 46px; transition: transform .25s var(--ease); }
+.face-bg { fill: color-mix(in srgb, var(--face) 16%, transparent); stroke: var(--face); stroke-width: 2.5; }
+.face-eye { fill: var(--face); }
+.face-mouth { fill: none; stroke: var(--face); stroke-width: 3; stroke-linecap: round; }
+.face:hover { transform: translateY(-3px); border-color: var(--face); box-shadow: 0 6px 18px color-mix(in srgb, var(--face) 25%, transparent); }
+.face:hover svg { transform: scale(1.12) rotate(-6deg); }
+.face-good:hover svg { transform: scale(1.12) rotate(6deg); }
+.face[aria-checked="true"] { border-color: var(--face); background: color-mix(in srgb, var(--face) 12%, var(--canvas)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--face) 22%, transparent); }
+.face[aria-checked="true"] svg { animation: face-pop .4s var(--ease); }
+.feedback-faces:has([aria-checked="true"]) .face[aria-checked="false"] { opacity: .55; }
+@keyframes face-pop { 40% { transform: scale(1.25) } }
+.reduce-motion .face, .reduce-motion .face svg { transition: none; animation: none; transform: none; }
+.feedback-note { display: flex; flex-direction: column; gap: 8px; animation: rise .25s var(--ease); }
+.feedback-note textarea { width: 100%; resize: vertical; min-height: 64px; font: inherit; }
+.feedback-actions { display: flex; gap: 8px; align-items: center; }
+.feedback-actions .muted { margin-right: auto; }
 .settings-body { overflow-y: auto; padding: 22px 28px 60px; display: flex; flex-direction: column; gap: 18px; scroll-padding-top: 16px; }
 .set-card { max-width: 760px; width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-lg); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
 .set-card h2 { margin: 0 0 8px; font-size: 15px; }

@@ -1,14 +1,16 @@
-// The Settings page: a local profile, each agent's sign-in, appearance, mascots and defaults.
+// The Settings page, in tabs: General (profile, accounts, feedback, about), Appearance (theme, mascots),
+// Technical (sessions, alerts, shortcuts, your settings) and Coffee.
 // Nothing here leaves the computer; sign-in and sign-out run each agent's own command.
 
 import { desktopAlert, playSound } from "../alerts";
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentId } from "@shared/events";
 import { PERMISSION_MODES, type AccountInfo, type UsageLimits } from "@shared/commands";
-import { AGENT_COLOR_DEFAULTS, CUSTOM_DEFAULT, THEME_TOKENS, parseTheme, type CustomTheme, type Settings, type ThemeToken } from "../settings";
+import { AGENT_COLOR_DEFAULTS, CUSTOM_DEFAULT, DEFAULT_SETTINGS, THEME_TOKENS, parseSettings, parseTheme, type CustomTheme, type Settings, type ThemeToken } from "../settings";
 import { packFor, type MascotPack } from "../mascots";
 import type { MascotState } from "../state";
 import { Mascot } from "./Mascot";
+import { FeedbackCard, feedbackCount, shouldAskFeedback } from "./Feedback";
 import { AGENT_NAMES, LimitBars } from "./Usage";
 import { TerminalView, clearTerminalBuffer } from "./TerminalView";
 
@@ -16,7 +18,32 @@ const AGENTS: AgentId[] = ["claude", "codex", "grok"];
 /** Where "Buy me a coffee" goes (Buy Me a Coffee, Ko-fi or GitHub Sponsors). Empty until there's a page. */
 const COFFEE_URL = "";
 
-const SECTIONS = [["profile", "Profile"], ["accounts", "Agents & accounts"], ["appearance", "Appearance"], ["mascots", "Mascots"], ["defaults", "Sessions"], ["alerts", "Alerts"], ["about", "About"], ["coffee", "Coffee"]] as const;
+const REPO = "https://github.com/HasnainMSyed/Agent-Zoo";
+
+export type SettingsTab = "general" | "appearance" | "technical" | "coffee";
+const TABS: [SettingsTab, string, string][] = [
+  ["general", "General", "Profile, accounts, about"],
+  ["appearance", "Appearance", "Theme, colours, mascots"],
+  ["technical", "Technical", "Sessions, alerts, keys"],
+  ["coffee", "Coffee", "Support Agent Zoo"],
+];
+const icon = (d: string) => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
+const TAB_ICONS: Record<SettingsTab, ReactNode> = {
+  general: icon("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"),
+  appearance: icon("M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.2 0-1.1.9-2 2-2h2.3A4.7 4.7 0 0 0 21 9.8C21 6 17 3 12 3zM7.5 12.5h.01M9.5 8h.01M14.5 8h.01"),
+  technical: icon("M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4"),
+  coffee: icon("M5 9h12v5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3c-.8 1 .8 2 0 3M12 3c-.8 1 .8 2 0 3"),
+};
+
+const mod = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl";
+const SHORTCUTS: [string[], string][] = [
+  [[mod, "K"], "Command palette: sessions, folders and actions"],
+  [[mod, "Shift", "P"], "Command palette (the editor habit)"],
+  [["Enter"], "Send a message"],
+  [["Shift", "Enter"], "New line in a message"],
+  [["/"], "Commands, at the start of a message"],
+  [["Esc"], "Close a dialog or the palette"],
+];
 
 export const initials = (name: string) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
 
@@ -119,27 +146,46 @@ function ThemeEditor({ theme, dark, onChange }: { theme: CustomTheme; dark: bool
   );
 }
 
-export function SettingsPage({ settings, onChange, dark, user, version, usage, onClose, packs, onMakeMascot, onPacksChanged }: {
+export function SettingsPage({ settings, onChange, dark, user, version, usage, onClose, packs, onMakeMascot, onPacksChanged, tab, onTab }: {
   settings: Settings; onChange: (s: Settings) => void; dark: boolean; user: string; version: string;
   usage: Partial<Record<AgentId, UsageLimits>>; onClose: () => void;
   packs: MascotPack[]; onMakeMascot: (description: string) => void; onPacksChanged: () => void;
+  tab: SettingsTab; onTab: (t: SettingsTab) => void;
 }) {
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => onChange({ ...settings, [k]: v });
   const [accts, setAccts] = useState<Record<AgentId, AccountInfo> | null>(null);
   const [term, setTerm] = useState<{ agent: AgentId; action: "login" | "logout" } | null>(null);
   const refresh = useCallback(() => { setAccts(null); window.agents.accounts().then(setAccts).catch(() => {}); }, []);
   useEffect(() => { refresh(); }, [refresh]);
+  const [updateNote, setUpdateNote] = useState("");
+  const [dataNote, setDataNote] = useState("");
+  const [resetArmed, setResetArmed] = useState(false);
+  // The feedback card: now and then on its own (see shouldAskFeedback), or from General → Feedback.
+  const [ask, setAsk] = useState(() => settings.askFeedback && shouldAskFeedback());
+  const [askAgent] = useState(() => AGENTS[Math.floor(Math.random() * AGENTS.length)]!);
+  const [given, setGiven] = useState(feedbackCount);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); }, [tab]);
 
   const name = settings.displayName || user || "You";
-  const go = (id: string) => document.getElementById(`set-${id}`)?.scrollIntoView({ behavior: settings.reduceMotion ? "auto" : "smooth", block: "start" });
 
   return (
     <div className="settings">
-      <nav className="settings-nav" aria-label="Settings sections">
+      <nav className="settings-nav" aria-label="Settings">
         <div className="settings-title"><h1>Settings</h1><button className="icon-btn" onClick={onClose} aria-label="Close settings" title="Close settings">×</button></div>
-        {SECTIONS.map(([id, label]) => <button key={id} onClick={() => go(id)}>{label}</button>)}
+        <div role="tablist" aria-orientation="vertical" className="settings-tabs">
+          {TABS.map(([id, label, sub]) => (
+            <button key={id} role="tab" id={`tab-${id}`} aria-selected={tab === id} aria-controls="settings-panel" className={tab === id ? "on" : ""} onClick={() => onTab(id)}>
+              <span className="tab-icon" aria-hidden="true">{TAB_ICONS[id]}</span>
+              <span className="tab-text"><span>{label}</span><small>{sub}</small></span>
+            </button>
+          ))}
+        </div>
       </nav>
-      <div className="settings-body">
+      <div className="settings-body" ref={bodyRef} id="settings-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {ask && <FeedbackCard pack={packFor(askAgent, settings.mascots[askAgent])} version={version} onClose={() => { setAsk(false); setGiven(feedbackCount()); }} />}
+
+        {tab === "general" && <>
         <section id="set-profile" className="set-card">
           <h2>Profile</h2>
           <div className="profile-head">
@@ -181,6 +227,33 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
           </div>
         </section>
 
+        <section id="set-feedback" className="set-card">
+          <h2>Feedback</h2>
+          <Row title="Ask me how it's going" hint="Now and then, a one-click question appears here in Settings. Never more than once a week.">
+            <Toggle label="Ask me how it's going" on={settings.askFeedback} onChange={(v) => set("askFeedback", v)} />
+          </Row>
+          <Row title="Tell us now" hint={given ? `You've given feedback ${given} time${given === 1 ? "" : "s"}. Thank you.` : "Bad, fine or good, with a note if you like"}>
+            <button className="btn-small" onClick={() => { setAsk(true); bodyRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }}>Give feedback</button>
+          </Row>
+        </section>
+
+        <section id="set-about" className="set-card">
+          <div className="set-card-head"><h2>About</h2><button className="btn-small" disabled={updateNote === "Checking…"} onClick={() => { setUpdateNote("Checking…"); window.agents.updateCheck().then(setUpdateNote, () => setUpdateNote("Couldn't check for updates.")); }}>Check for updates</button></div>
+          {updateNote && <span className="muted small" role="status">{updateNote}</span>}
+          <dl className="about">
+            <dt>Agent Zoo</dt><dd>{version}</dd>
+            {AGENTS.map((a) => (
+              <Fragment key={a}><dt>{AGENT_NAMES[a]}</dt><dd>{accts ? (accts[a].installed ? accts[a].version ?? "installed" : "not installed") : "…"}</dd></Fragment>
+            ))}
+          </dl>
+          <div className="about-links">
+            <button className="btn-small" onClick={() => window.open(REPO, "_blank")}>Source on GitHub</button>
+            <button className="btn-small" onClick={() => window.open(`${REPO}/issues/new`, "_blank")}>Report a bug</button>
+          </div>
+        </section>
+        </>}
+
+        {tab === "appearance" && <>
         <section id="set-appearance" className="set-card">
           <h2>Appearance</h2>
           <Row title="Theme"><Choice label="Theme" value={settings.theme} onChange={(v) => set("theme", v)} options={[["system", "System"], ["light", "Light"], ["dark", "Dark"]]} /></Row>
@@ -206,7 +279,9 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
         <section id="set-mascots" className="set-card">
           <MascotSettings settings={settings} set={set} packs={packs} onMake={onMakeMascot} onChanged={onPacksChanged} />
         </section>
+        </>}
 
+        {tab === "technical" && <>
         <section id="set-defaults" className="set-card">
           <h2>Sessions</h2>
           <Row title="Reopen where you left off" hint="At launch, the session you were last in starts again. The others stay in the sidebar until you open them.">
@@ -238,16 +313,37 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
           </Row>
         </section>
 
-        <section id="set-about" className="set-card">
-          <h2>About</h2>
-          <dl className="about">
-            <dt>Agent Zoo</dt><dd>{version}</dd>
-            {AGENTS.map((a) => (
-              <Fragment key={a}><dt>{AGENT_NAMES[a]}</dt><dd>{accts ? (accts[a].installed ? accts[a].version ?? "installed" : "not installed") : "…"}</dd></Fragment>
+        <section id="set-shortcuts" className="set-card">
+          <h2>Keyboard shortcuts</h2>
+          <dl className="shortcuts">
+            {SHORTCUTS.map(([keys, what]) => (
+              <Fragment key={what}><dt>{keys.map((k, i) => <Fragment key={i}>{i > 0 && " "}<kbd>{k}</kbd></Fragment>)}</dt><dd>{what}</dd></Fragment>
             ))}
           </dl>
         </section>
 
+        <section id="set-data" className="set-card">
+          <h2>Your settings</h2>
+          <Row title="Move to another computer" hint="Copies every setting here as text; paste it into Agent Zoo on the other computer">
+            <div className="sound-row">
+              <button className="btn-small" onClick={() => navigator.clipboard.writeText(JSON.stringify(settings, null, 1)).then(() => setDataNote("Settings copied."), () => setDataNote("Couldn't copy."))}>Copy settings</button>
+              <button className="btn-small" onClick={async () => {
+                const next = parseSettings(await navigator.clipboard.readText().catch(() => ""));
+                if (next) { onChange(next); setDataNote("Settings pasted."); } else setDataNote("The clipboard doesn't hold Agent Zoo settings.");
+              }}>Paste settings</button>
+            </div>
+          </Row>
+          <Row title="Start over" hint="Puts every setting back to how it was at install. Sessions, accounts and mascots you made stay.">
+            <button className={`btn-small ${resetArmed ? "danger" : ""}`} onBlur={() => setResetArmed(false)}
+              onClick={() => { if (!resetArmed) { setResetArmed(true); return; } setResetArmed(false); onChange(DEFAULT_SETTINGS); setDataNote("Settings reset."); }}>
+              {resetArmed ? "Click again to reset" : "Reset all settings"}
+            </button>
+          </Row>
+          {dataNote && <span className="muted small" role="status">{dataNote}</span>}
+        </section>
+        </>}
+
+        {tab === "coffee" && <>
         <section id="set-coffee" className="set-card coffee">
           <h2>Coffee</h2>
           <div className="coffee-body">
@@ -266,6 +362,7 @@ export function SettingsPage({ settings, onChange, dark, user, version, usage, o
             </div>
           </div>
         </section>
+        </>}
       </div>
     </div>
   );

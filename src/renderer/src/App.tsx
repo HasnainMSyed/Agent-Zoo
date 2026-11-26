@@ -10,7 +10,7 @@ import { Composer } from "./components/Composer";
 import { HomeScreen } from "./components/HomeScreen";
 import { UsageDetails } from "./components/Usage";
 import { CommandPanel, modeLabel } from "./components/Panels";
-import { SettingsPage, initials } from "./components/SettingsPage";
+import { SettingsPage, initials, type SettingsTab } from "./components/SettingsPage";
 import { CloudTask, SessionBrowser, SessionNav, useDropTarget, type DragLoad } from "./components/SessionSidebar";
 import { ShellPane, type ShellState } from "./components/ShellPane";
 import { FilesPane } from "./components/FilesPane";
@@ -216,6 +216,7 @@ export function App() {
   useEffect(() => { loadPacks(); return window.agents.mascots.onChanged(loadPacks); }, [loadPacks]);
   setChosenMascots(settings.mascots);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [user, setUser] = useState("");
   const [appVersion, setAppVersion] = useState("");
   // The input box floats over the chat; the chat leaves room under its last message for it.
@@ -529,6 +530,8 @@ export function App() {
     act("left", layout.left ? "Hide the sessions panel" : "Show the sessions panel", () => setLayout({ left: !layout.left }), undefined, "sidebar");
     if (active) act("right", railOpen ? "Hide the details panel" : "Show the details panel", () => setLayout({ right: !railOpen }), undefined, "usage plan subagents rail");
     act("settings", "Settings", () => setShowSettings(true), undefined, "preferences options");
+    const tabWords: Record<SettingsTab, string> = { general: "profile accounts sign in about version update feedback", appearance: "theme colours colors mascots text size", technical: "sessions alerts sound shortcuts keys reset", coffee: "support tip donate" };
+    for (const t of ["general", "appearance", "technical", "coffee"] as const) act(`settings-${t}`, `Settings: ${t[0]!.toUpperCase()}${t.slice(1)}`, () => { setSettingsTab(t); setShowSettings(true); }, undefined, `preferences ${tabWords[t]}`);
     for (const t of ["system", "light", "dark"] as const) if (settings.theme !== t) act(`theme-${t}`, `Theme: ${t[0]!.toUpperCase()}${t.slice(1)}`, () => setSettings({ ...settings, theme: t }), undefined, "appearance mode");
     act("alerts", settings.alerts === "off" ? "Turn desktop alerts on" : "Turn desktop alerts off", () => setSettings({ ...settings, alerts: settings.alerts === "off" ? "background" : "off" }), undefined, "notifications");
     // Project folders: start any agent there.
@@ -599,7 +602,7 @@ export function App() {
         )}
         {showSettings ? (
           <SettingsPage settings={settings} onChange={setSettings} dark={dark} user={user} version={appVersion} usage={usage} onClose={() => setShowSettings(false)}
-            packs={packs} onPacksChanged={loadPacks}
+            tab={settingsTab} onTab={setSettingsTab} packs={packs} onPacksChanged={loadPacks}
             onMakeMascot={async (description) => {
               const folder = await window.agents.mascots.newFolder(description.split(/\s+/).slice(0, 4).join(" "));
               start("claude", { cwd: folder, prompt: makeMascotPrompt(description, folder) });

@@ -14,7 +14,7 @@ import { MascotStore } from "./mascots";
 import { userInfo } from "node:os";
 import { loadShellPath } from "./env";
 import { takeOverClaude } from "./live-sessions";
-import { installUpdate, startUpdates, updateState } from "./updater";
+import { installUpdate, startUpdates, updateState, checkForUpdates } from "./updater";
 import { fileStat, listDir, readFileFor, writeFileFor } from "./files";
 import { localServers } from "./local-servers";
 import { guardBrowserPage, PARTITION as BROWSER_PARTITION, setUpBrowserSession } from "./browser-pane";
@@ -194,6 +194,7 @@ ipcMain.handle("session:takeOverCancel", (_e, sessionId: string) => { const j = 
 ipcMain.handle("update:get", () => updateState());
 ipcMain.handle("app:focus", () => { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); });
 ipcMain.handle("update:install", () => installUpdate());
+ipcMain.handle("update:check", () => checkForUpdates());
 ipcMain.handle("usage:get", () => usage?.all() ?? {});
 ipcMain.handle("sessions:past", (_e, fresh?: boolean) => pastSessions((patches) => patches.forEach((p) => usage?.update(p)), fresh));
 ipcMain.handle("session:command", (_e, id: string, cmd: SessionCommand) => manager.command(id, cmd));

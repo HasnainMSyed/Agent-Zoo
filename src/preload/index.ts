@@ -33,6 +33,8 @@ const api = {
   /** A new version: whether one is downloading or ready, and restarting into it. */
   updateState: (): Promise<{ status: "idle" | "downloading" | "ready" | "error"; version?: string; percent?: number; error?: string }> => ipcRenderer.invoke("update:get"),
   updateInstall: (): Promise<void> => ipcRenderer.invoke("update:install"),
+  /** Looks for a new version now; resolves to a sentence saying what it found. */
+  updateCheck: (): Promise<string> => ipcRenderer.invoke("update:check"),
   onUpdate(cb: (s: { status: "idle" | "downloading" | "ready" | "error"; version?: string; percent?: number; error?: string }) => void) {
     const listener = (_: unknown, s: Parameters<typeof cb>[0]) => cb(s);
     ipcRenderer.on("update:state", listener);

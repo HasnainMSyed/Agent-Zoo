@@ -17,6 +17,7 @@ export interface Settings {
   reopenLast: boolean;                 // at launch, reopen the session you were last in
   alerts: "background" | "always" | "off"; // desktop alerts when an agent finishes or needs you
   sound: "off" | "chime" | "pop" | "bell";  // played with an alert
+  askFeedback: boolean;                // now and then, Settings asks how the app is doing
 }
 
 /** The colours a custom theme can change (CSS tokens), with their names in Settings. */
@@ -46,7 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   displayName: "", theme: "system", skin: "agent", agentColors: AGENT_COLOR_DEFAULTS,
   textSize: "default", reduceMotion: false, showMascots: true, mascots: {}, defaultAgent: "last", claudeMode: "default",
   reopenLast: true,
-  alerts: "background", sound: "off",
+  alerts: "background", sound: "off", askFeedback: true,
   customTheme: CUSTOM_DEFAULT,
 };
 
@@ -57,6 +58,18 @@ export function loadSettings(): Settings {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Settings>;
     return { ...DEFAULT_SETTINGS, ...raw, agentColors: { ...AGENT_COLOR_DEFAULTS, ...raw.agentColors }, customTheme: { ...CUSTOM_DEFAULT, ...raw.customTheme } };
   } catch { return DEFAULT_SETTINGS; }
+}
+
+/** Settings → Technical → Paste settings: known keys from a copied settings object, over the defaults. */
+export function parseSettings(text: string): Settings | null {
+  try {
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const known = Object.fromEntries(Object.entries(raw).filter(([k, v]) => k in DEFAULT_SETTINGS && typeof v === typeof DEFAULT_SETTINGS[k as keyof Settings]));
+    if (!Object.keys(known).length) return null;
+    const s = { ...DEFAULT_SETTINGS, ...known } as Settings;
+    return { ...s, agentColors: { ...AGENT_COLOR_DEFAULTS, ...s.agentColors }, customTheme: parseTheme(JSON.stringify(s.customTheme)) ?? CUSTOM_DEFAULT };
+  } catch { return null; }
 }
 
 export function saveSettings(s: Settings) {

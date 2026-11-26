@@ -12,6 +12,7 @@ const EVERY = 4 * 60 * 60_000;
 export interface UpdateState { status: "idle" | "downloading" | "ready" | "error"; version?: string; percent?: number; error?: string }
 
 let state: UpdateState = { status: "idle" };
+let enabled = false;
 
 export function startUpdates(win: () => BrowserWindow | null) {
   // Only installed copies update themselves (AGENTS_GUI_UPDATE_URL points a test build at a local server).
@@ -20,6 +21,7 @@ export function startUpdates(win: () => BrowserWindow | null) {
   const fake = process.env.AGENTS_GUI_SCREENSHOT && process.env.AGENTS_GUI_FAKE_UPDATE;
   if (fake) { state = { status: "ready", version: fake }; return; }
   if (!app.isPackaged && !testFeed) return;
+  enabled = true;
   if (testFeed) autoUpdater.setFeedURL({ provider: "generic", url: testFeed });
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false; // only when you choose to update
@@ -36,6 +38,18 @@ export function startUpdates(win: () => BrowserWindow | null) {
 }
 
 export const updateState = () => state;
+
+/** Settings → About → Check for updates: says what it found, in words for the page. */
+export async function checkForUpdates(): Promise<string> {
+  if (state.status === "ready") return `Version ${state.version} is ready to install.`;
+  if (state.status === "downloading") return `Version ${state.version} is downloading.`;
+  if (!enabled) return "This copy doesn't update itself (it isn't an installed copy).";
+  try {
+    const r = await autoUpdater.checkForUpdates();
+    const v = r?.updateInfo.version;
+    return v && v !== app.getVersion() ? `Version ${v} found. It's downloading now.` : "You have the latest version.";
+  } catch { return "Couldn't reach GitHub. Try again when you're online."; }
+}
 
 /** Restarts into the downloaded version. */
 export function installUpdate() {
